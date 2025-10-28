@@ -35,6 +35,16 @@ export default function DemoViewPage() {
       
       if (data.success) {
         setDocument(data.document)
+        
+        // Track the view
+        try {
+          await fetch(`/api/documents/${params.id}/view`, {
+            method: 'POST'
+          })
+          console.log('📊 Document view tracked')
+        } catch (viewError) {
+          console.warn('Failed to track view:', viewError)
+        }
       } else {
         setError(data.error || 'Document not found')
       }

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { PrismaClient } from '@prisma/client'
+import { demoStore } from '@/lib/demo-document-store'
+
+// Initialize Prisma client safely
+const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['error'] : ['error'],
+})
 
 export const runtime = 'nodejs'
 
@@ -7,31 +13,118 @@ export async function GET(request: NextRequest) {
   try {
     console.log('📊 Analytics API called')
 
-    // Check if database is configured
+    // Check if database is configured and accessible
     const isDatabaseConfigured = process.env.DATABASE_URL && 
                                 !process.env.DATABASE_URL.includes('placeholder') && 
                                 !process.env.DATABASE_URL.includes('build')
 
-    if (!isDatabaseConfigured) {
-      console.log('📊 Database not configured, returning demo analytics')
+    // Try to get real document data first
+    const realDocuments = demoStore.getAllDocuments()
+    const hasRealDocuments = realDocuments.length > 0
+
+    if (hasRealDocuments) {
+      console.log('📊 Using real document data for analytics')
       
-      // Return demo analytics data
+      // Calculate analytics from real documents
+      const today = new Date()
+      const recentViews = realDocuments.map((doc, index) => {
+        // Get actual view count for this document
+        const documentViews = demoStore.getDocumentViews(doc.id)
+        // Also add share link views
+        const shareLinks = demoStore.getShareLinksForDocument(doc.id)
+        const shareLinkViews = shareLinks.reduce((sum, link) => sum + link.openCount, 0)
+        const totalViews = documentViews + shareLinkViews
+        
+        return {
+          document: doc.title,
+          views: totalViews,
+          date: new Date(doc.createdAt).toISOString().split('T')[0]
+        }
+      }).slice(0, 5) // Show only the 5 most recent
+
+      const totalViews = demoStore.getTotalViews() + 
+                        demoStore.getAllDocuments().reduce((sum, doc) => {
+                          const shareLinks = demoStore.getShareLinksForDocument(doc.id)
+                          return sum + shareLinks.reduce((linkSum, link) => linkSum + link.openCount, 0)
+                        }, 0)
+      
+      return NextResponse.json({
+        success: true,
+        analytics: {
+          totalViews,
+          totalDocuments: realDocuments.length,
+          totalUsers: 1, // Current user
+          recentViews
+        },
+        demoMode: false
+      })
+    }
+
+    // Fallback to demo data if no real documents
+    console.log('📊 No real documents found, returning demo analytics data')
+    
+    // Generate realistic demo data
+    const today = new Date()
+    const demoViews = [
+      { 
+        document: 'Product Brochure 2024', 
+        views: Math.floor(Math.random() * 50) + 20, 
+        date: new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      },
+      { 
+        document: 'Financial Report Q3', 
+        views: Math.floor(Math.random() * 30) + 15, 
+        date: new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      },
+      { 
+        document: 'User Manual v2.1', 
+        views: Math.floor(Math.random() * 40) + 10, 
+        date: new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      },
+      { 
+        document: 'Marketing Presentation', 
+        views: Math.floor(Math.random() * 25) + 8, 
+        date: new Date(today.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      },
+      { 
+        document: 'Technical Specifications', 
+        views: Math.floor(Math.random() * 35) + 12, 
+        date: new Date(today.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+    ]
+
+    const totalViews = demoViews.reduce((sum, view) => sum + view.views, 0)
+    
+    return NextResponse.json({
+      success: true,
+      analytics: {
+        totalViews,
+        totalDocuments: demoViews.length,
+        totalUsers: Math.floor(Math.random() * 5) + 3,
+        recentViews: demoViews
+      },
+      demoMode: true
+    })
+
+    // Database code (commented out for now)
+    /*
+    if (!isDatabaseConfigured) {
+      // Return demo analytics data when database is not configured
       return NextResponse.json({
         success: true,
         analytics: {
           totalViews: Math.floor(Math.random() * 100) + 50,
           totalDocuments: Math.floor(Math.random() * 20) + 5,
           totalUsers: Math.floor(Math.random() * 10) + 1,
-          recentViews: [
-            { document: 'Sample Document 1', views: 15, date: '2024-10-25' },
-            { document: 'Sample Document 2', views: 8, date: '2024-10-24' },
-            { document: 'Demo PDF', views: 23, date: '2024-10-23' }
-          ]
+          recentViews: demoViews
         },
         demoMode: true
       })
     }
+    */
 
+    // Database-dependent code (commented out for now)
+    /*
     // Get user email from headers for authentication
     const userEmail = request.headers.get('x-user-email')
     
@@ -101,6 +194,7 @@ export async function GET(request: NextRequest) {
       success: true,
       analytics
     })
+    */
 
   } catch (error) {
     console.error('❌ Analytics API error:', error)

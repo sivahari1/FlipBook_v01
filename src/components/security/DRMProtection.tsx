@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, ReactNode } from 'react'
 import { DRMProtection as DRMProtectionClass, SecurityViolation } from '@/lib/drm-protection'
 import KeyboardShortcutBlocker from './KeyboardShortcutBlocker'
+import DevToolsDetector from './DevToolsDetector'
 
 interface DRMProtectionProps {
   children: ReactNode
@@ -295,6 +296,16 @@ export function DRMProtection({
         strictMode={strictMode}
         allowedKeys={allowedKeys}
         customBlocks={customKeyboardBlocks}
+      />
+      
+      {/* Advanced Developer Tools Detector */}
+      <DevToolsDetector
+        enabled={enabled}
+        onViolation={onViolation}
+        hideContent={strictMode}
+        blurContent={!strictMode}
+        showWarning={showWarnings}
+        strictMode={strictMode}
       />
       
       <div

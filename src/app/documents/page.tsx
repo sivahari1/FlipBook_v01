@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Header } from '@/components/layout/Header'
 import Link from 'next/link'
-import { Upload, FileText, Share2, Shield, Eye, Calendar, ExternalLink, Copy, MoreVertical, Trash2, RefreshCw } from 'lucide-react'
+import { Upload, FileText, Share2, Shield, Eye, Calendar, ExternalLink, Copy, MoreVertical, Trash2, RefreshCw, Mail } from 'lucide-react'
+import { ShareDialog } from '@/components/ui/share-dialog'
 
 interface Document {
   id: string
@@ -36,6 +37,9 @@ export default function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [isLoadingDocs, setIsLoadingDocs] = useState(true)
   const [error, setError] = useState('')
+  const [emailShareDialog, setEmailShareDialog] = useState<{ isOpen: boolean; document?: Document }>({
+    isOpen: false
+  })
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -199,6 +203,50 @@ export default function DocumentsPage() {
     }
   }
 
+  const handleEmailShare = (document: Document) => {
+    setEmailShareDialog({ isOpen: true, document })
+  }
+
+  const handleEmailShareSubmit = async (email: string, message?: string) => {
+    if (!emailShareDialog.document) return { success: false, error: 'No document selected' }
+
+    try {
+      const response = await fetch(`/api/documents/${emailShareDialog.document.id}/share-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          message
+        }),
+      })
+
+      const data = await response.json()
+      
+      if (data.success) {
+        // Refresh documents to get updated share count
+        fetchDocuments()
+        return {
+          success: true,
+          shareUrl: data.shareUrl,
+          message: data.message
+        }
+      } else {
+        return {
+          success: false,
+          error: data.error || 'Failed to share document'
+        }
+      }
+    } catch (error) {
+      console.error('Error sharing document via email:', error)
+      return {
+        success: false,
+        error: 'Network error occurred'
+      }
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -347,11 +395,19 @@ export default function DocumentsPage() {
                     </Link>
                     
                     <button
-                      onClick={() => createShareLink(doc.id)}
+                      onClick={() => handleEmailShare(doc)}
                       className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors inline-flex items-center space-x-2"
                     >
+                      <Mail className="w-4 h-4" />
+                      <span>Share via Email</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => createShareLink(doc.id)}
+                      className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors inline-flex items-center space-x-2"
+                    >
                       <Share2 className="w-4 h-4" />
-                      <span>Share</span>
+                      <span>Get Link</span>
                     </button>
                     
                     <button
@@ -400,6 +456,16 @@ export default function DocumentsPage() {
             <p className="text-gray-600">Advanced DRM features prevent unauthorized copying, printing, and downloading.</p>
           </div>
         </div>
+
+        {/* Email Share Dialog */}
+        {emailShareDialog.document && (
+          <ShareDialog
+            isOpen={emailShareDialog.isOpen}
+            onClose={() => setEmailShareDialog({ isOpen: false })}
+            document={emailShareDialog.document}
+            onShare={handleEmailShareSubmit}
+          />
+        )}
       </div>
     </div>
   )

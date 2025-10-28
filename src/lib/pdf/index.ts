@@ -5,6 +5,18 @@ import { getEnvironmentConfig } from './config'
 // Core processor
 export { PDFProcessor, pdfProcessor } from './processor'
 
+// Rendering and conversion
+export { PDFRenderer, pdfRenderer } from './renderer'
+export type { RenderResult, BatchRenderOptions } from './renderer'
+
+// Text extraction
+export { TextExtractor, textExtractor } from './text-extractor'
+export type { TextExtractionOptions, TextExtractionResult } from './text-extractor'
+
+// Thumbnail generation
+export { ThumbnailGenerator, thumbnailGenerator } from './thumbnail-generator'
+export type { ThumbnailResult, BatchThumbnailOptions } from './thumbnail-generator'
+
 // Validation
 export { PDFValidator, pdfValidator } from './validator'
 export type { ValidationResult } from './validator'

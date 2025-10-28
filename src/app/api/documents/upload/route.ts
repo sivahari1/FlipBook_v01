@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getStorageProvider } from '@/lib/storage'
 import { isDatabaseConfigured } from '@/lib/database-config'
+import { demoStore } from '@/lib/demo-document-store'
 
 export const runtime = 'nodejs'
 
@@ -39,18 +40,26 @@ async function handleDemoUpload(request: NextRequest) {
     // Get page count (simplified for demo)
     let pageCount = Math.floor(Math.random() * 20) + 5
     
+    // Store in demo document store
+    const demoDocument = {
+      id: documentId,
+      title: title.trim(),
+      description: description?.trim() || null,
+      pageCount,
+      createdAt: new Date().toISOString(),
+      fileName: `${documentId}.pdf`,
+      fileSize: fileBuffer.length,
+      storageKey,
+      drmOptions: {}
+    }
+    
+    demoStore.addDocument(demoDocument)
+    
     // Return demo response
     const response = {
       success: true,
       document: {
-        id: documentId,
-        title: title.trim(),
-        description: description?.trim() || null,
-        pageCount,
-        createdAt: new Date().toISOString(),
-        fileName: `${documentId}.pdf`,
-        fileSize: fileBuffer.length,
-        storageKey,
+        ...demoDocument,
         demoMode: true,
         owner: { email: 'demo@example.com', role: 'CREATOR' },
         shareLinks: [],

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { ShareDialog } from '@/components/ui/share-dialog'
 
 interface Document {
   id: string
@@ -178,6 +179,9 @@ export default function DocumentManager() {
   const [shareModal, setShareModal] = useState<{ isOpen: boolean; document?: Document }>({
     isOpen: false
   })
+  const [emailShareDialog, setEmailShareDialog] = useState<{ isOpen: boolean; document?: Document }>({
+    isOpen: false
+  })
   const [shareLinks, setShareLinks] = useState<any[]>([])
 
   useEffect(() => {
@@ -201,6 +205,50 @@ export default function DocumentManager() {
 
   const handleShare = (document: Document) => {
     setShareModal({ isOpen: true, document })
+  }
+
+  const handleEmailShare = (document: Document) => {
+    setEmailShareDialog({ isOpen: true, document })
+  }
+
+  const handleEmailShareSubmit = async (email: string, message?: string) => {
+    if (!emailShareDialog.document) return { success: false, error: 'No document selected' }
+
+    try {
+      const response = await fetch(`/api/documents/${emailShareDialog.document.id}/share-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          message
+        }),
+      })
+
+      const data = await response.json()
+      
+      if (data.success) {
+        // Refresh documents to get updated share count
+        fetchDocuments()
+        return {
+          success: true,
+          shareUrl: data.shareUrl,
+          message: data.message
+        }
+      } else {
+        return {
+          success: false,
+          error: data.error || 'Failed to share document'
+        }
+      }
+    } catch (error) {
+      console.error('Error sharing document via email:', error)
+      return {
+        success: false,
+        error: 'Network error occurred'
+      }
+    }
   }
 
   const handleShareCreated = (shareLink: any) => {
@@ -274,14 +322,20 @@ export default function DocumentManager() {
                 
                 <div className="flex gap-2 ml-4">
                   <button
-                    onClick={() => handleShare(document)}
+                    onClick={() => handleEmailShare(document)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                   >
-                    🔗 Share
+                    📧 Share via Email
+                  </button>
+                  <button
+                    onClick={() => handleShare(document)}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                  >
+                    🔗 Get Link
                   </button>
                   <a
                     href={`/view/${document.id}`}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors inline-block"
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors inline-block"
                   >
                     👁️ View
                   </a>
@@ -333,6 +387,15 @@ export default function DocumentManager() {
         onClose={() => setShareModal({ isOpen: false })}
         onShare={handleShareCreated}
       />
+
+      {emailShareDialog.document && (
+        <ShareDialog
+          isOpen={emailShareDialog.isOpen}
+          onClose={() => setEmailShareDialog({ isOpen: false })}
+          document={emailShareDialog.document}
+          onShare={handleEmailShareSubmit}
+        />
+      )}
     </>
   )
 }

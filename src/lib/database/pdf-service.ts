@@ -513,6 +513,87 @@ export class PDFDatabaseService {
     }
   }
 
+  // Document access operations
+  async getDocumentWithAccess(documentId: string, userId: string) {
+    try {
+      return await this.prisma.document.findFirst({
+        where: {
+          id: documentId,
+          OR: [
+            { ownerId: userId },
+            // Add shared document access logic here if needed
+          ]
+        }
+      })
+    } catch (error) {
+      throw new PDFProcessingError(
+        `Failed to get document with access: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        PDF_ERROR_CODES.STORAGE_ERROR,
+        documentId
+      )
+    }
+  }
+
+  // Cache operations (simplified - in production you'd use Redis)
+  private pageCache = new Map<string, { data: Buffer; metadata: any; timestamp: number }>()
+  private thumbnailCache = new Map<string, { data: any; timestamp: number }>()
+
+  async getCachedPage(
+    documentId: string, 
+    pageNumber: number, 
+    options: { quality: string; format: string; width?: number; height?: number }
+  ) {
+    const cacheKey = `${documentId}-${pageNumber}-${options.quality}-${options.format}-${options.width || 'auto'}-${options.height || 'auto'}`
+    const cached = this.pageCache.get(cacheKey)
+    
+    if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) { // 24 hours
+      return {
+        imageData: cached.data,
+        width: cached.metadata.width,
+        height: cached.metadata.height
+      }
+    }
+    
+    return null
+  }
+
+  async setCachedPage(
+    documentId: string,
+    pageNumber: number,
+    data: {
+      imageData: Buffer
+      width: number
+      height: number
+      format: string
+      quality: string
+      size: number
+    }
+  ) {
+    const cacheKey = `${documentId}-${pageNumber}-${data.quality}-${data.format}-auto-auto`
+    this.pageCache.set(cacheKey, {
+      data: data.imageData,
+      metadata: { width: data.width, height: data.height },
+      timestamp: Date.now()
+    })
+  }
+
+  async getCachedThumbnails(cacheKey: string) {
+    const cached = this.thumbnailCache.get(cacheKey)
+    
+    if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) { // 24 hours
+      return cached.data
+    }
+    
+    return null
+  }
+
+  async setCachedThumbnails(cacheKey: string, data: any, ttlSeconds: number) {
+    this.thumbnailCache.set(cacheKey, {
+      data,
+      timestamp: Date.now()
+    })
+  }
+
   // Cleanup operations
   async deleteDocumentPDFData(documentId: string): Promise<void> {
     try {

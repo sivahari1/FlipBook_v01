@@ -8,6 +8,7 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { Header } from '@/components/layout/Header'
+import InboxManager from '@/components/dashboard/InboxManager'
 
 function DashboardContent() {
   const [trialDaysLeft, setTrialDaysLeft] = useState(7)
@@ -161,6 +162,11 @@ function DashboardContent() {
               View Analytics
             </Link>
           </div>
+        </div>
+
+        {/* Inbox Section */}
+        <div className="mb-8">
+          <InboxManager userEmail={user?.email || ''} />
         </div>
 
         {/* Recent Activity */}

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { demoStore } from '@/lib/demo-document-store'
 
 export const runtime = 'nodejs'
 
@@ -20,9 +21,31 @@ export async function POST(
     if (!isDatabaseConfigured || id?.startsWith('demo-')) {
       console.log('🔗 Creating demo share link for:', id)
       
+      // Check if document exists in demo store
+      const demoDocument = demoStore.getDocument(id)
+      if (!demoDocument) {
+        return NextResponse.json({
+          error: 'Document not found in demo store'
+        }, { status: 404 })
+      }
+      
       // Generate a demo share code
-      const shareCode = `demo-share-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
-      const baseUrl = request.headers.get('origin') || process.env.NEXTAUTH_URL || 'http://localhost:3000'
+      const shareCode = `share-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
+      const baseUrl = request.headers.get('origin') || process.env.NEXTAUTH_URL || 'http://localhost:3001'
+      
+      // Create demo share link
+      const demoShareLink = {
+        id: shareCode,
+        code: shareCode,
+        documentId: id,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        maxOpens: undefined,
+        openCount: 0,
+        requirePass: false
+      }
+      
+      demoStore.addShareLink(demoShareLink)
       
       return NextResponse.json({
         success: true,
@@ -34,7 +57,7 @@ export async function POST(
           openCount: 0,
           demoMode: true
         },
-        message: 'Demo share link created! This link will redirect to the document viewer.'
+        message: 'Demo share link created! This link will show your uploaded document.'
       })
     }
     

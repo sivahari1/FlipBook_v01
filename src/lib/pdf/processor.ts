@@ -217,7 +217,7 @@ export class PDFProcessor {
         producer: pdfDoc.getProducer() || undefined,
         creationDate: pdfDoc.getCreationDate() || undefined,
         modificationDate: pdfDoc.getModificationDate() || undefined,
-        keywords: pdfDoc.getKeywords()?.split(',').map(k => k.trim()) || undefined
+        keywords: pdfDoc.getKeywords()?.split(',').map((k: string) => k.trim()) || undefined
       }
     } catch (error) {
       console.warn('Failed to extract PDF metadata:', error)

@@ -19,6 +19,7 @@ interface ShareData {
     maxOpens?: number
     openCount: number
     requirePass: boolean
+    restrictedEmail?: string
   }
   isValid: boolean
   message?: string
@@ -140,6 +141,11 @@ export default function SharedDocumentViewer() {
               <span className="ml-2 px-2 py-1 text-xs bg-orange-100 text-orange-800 rounded-full">
                 Shared Access
               </span>
+              {shareData.shareLink.restrictedEmail && (
+                <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+                  📧 Email Restricted
+                </span>
+              )}
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-600">
