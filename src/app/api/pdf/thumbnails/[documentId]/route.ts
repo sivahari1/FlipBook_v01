@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/app/api/auth/[...nextauth]/route'
+// import { getServerSession } from 'next-auth'
+// import { authOptions } from '@/app/api/auth/[...nextauth]/route'
 import { thumbnailGenerator } from '@/lib/pdf'
 import { pdfDbService } from '@/lib/database/pdf-service'
 import { PDFProcessingError } from '@/lib/types/pdf'

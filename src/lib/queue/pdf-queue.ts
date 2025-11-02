@@ -4,12 +4,12 @@ import { pdfProcessor } from '@/lib/pdf/processor'
 import { pdfDbService } from '@/lib/database/pdf-service'
 import { PDFProcessingOptions } from '@/lib/types/pdf'
 
-// Redis connection
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  maxRetriesPerRequest: 3,
+// Redis connection - disable for production deployment
+const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL, {
+  maxRetriesPerRequest: null, // Required for BullMQ
   enableReadyCheck: false,
   lazyConnect: true
-})
+}) : null
 
 // Job data interface
 interface PDFProcessingJobData {
@@ -19,8 +19,8 @@ interface PDFProcessingJobData {
   userId?: string
 }
 
-// Create the PDF processing queue
-export const pdfProcessingQueue = new Queue('pdf-processing', {
+// Create the PDF processing queue - only if Redis is available
+export const pdfProcessingQueue = redis ? new Queue('pdf-processing', {
   connection: redis,
   defaultJobOptions: {
     removeOnComplete: 10, // Keep last 10 completed jobs
@@ -31,10 +31,10 @@ export const pdfProcessingQueue = new Queue('pdf-processing', {
       delay: 2000,
     },
   },
-})
+}) : null
 
-// Worker to process PDF jobs
-const pdfWorker = new Worker(
+// Worker to process PDF jobs - only if Redis is available
+const pdfWorker = redis ? new Worker(
   'pdf-processing',
   async (job: Job<PDFProcessingJobData>) => {
     const { documentId, fileBuffer, options, userId } = job.data
@@ -82,43 +82,45 @@ const pdfWorker = new Worker(
       duration: 60000, // 1 minute
     },
   }
-)
+) : null
 
-// Event handlers for the worker
-pdfWorker.on('completed', async (job: Job, result: any) => {
-  console.log(`PDF processing job ${job.id} completed:`, result)
-})
+// Event handlers for the worker - only if worker exists
+if (pdfWorker) {
+  pdfWorker.on('completed', async (job: Job, result: any) => {
+    console.log(`PDF processing job ${job.id} completed:`, result)
+  })
 
-pdfWorker.on('failed', async (job: Job | undefined, err: Error) => {
-  console.error(`PDF processing job ${job?.id} failed:`, err.message)
-  
-  if (job?.data?.documentId) {
-    // Update the processing job status in database
-    const processingJob = await pdfDbService.getProcessingJob(job.data.documentId)
-    if (processingJob) {
-      await pdfDbService.updateProcessingJob(processingJob.id, {
-        status: 'FAILED',
-        errorMessage: err.message,
-        completedAt: new Date()
-      })
+  pdfWorker.on('failed', async (job: Job | undefined, err: Error) => {
+    console.error(`PDF processing job ${job?.id} failed:`, err.message)
+    
+    if (job?.data?.documentId) {
+      // Update the processing job status in database
+      const processingJob = await pdfDbService.getProcessingJob(job.data.documentId)
+      if (processingJob) {
+        await pdfDbService.updateProcessingJob(processingJob.id, {
+          status: 'FAILED',
+          errorMessage: err.message,
+          completedAt: new Date()
+        })
+      }
     }
-  }
-})
+  })
 
-pdfWorker.on('progress', async (job: Job, progress: any) => {
-  const progressNum = typeof progress === 'number' ? progress : parseInt(progress) || 0
-  console.log(`PDF processing job ${job.id} progress: ${progressNum}%`)
-  
-  // Update the processing job progress in database
-  if (job.data?.documentId) {
-    const processingJob = await pdfDbService.getProcessingJob(job.data.documentId)
-    if (processingJob) {
-      await pdfDbService.updateProcessingJob(processingJob.id, {
-        progress: Math.round(progressNum)
-      })
+  pdfWorker.on('progress', async (job: Job, progress: any) => {
+    const progressNum = typeof progress === 'number' ? progress : parseInt(progress) || 0
+    console.log(`PDF processing job ${job.id} progress: ${progressNum}%`)
+    
+    // Update the processing job progress in database
+    if (job.data?.documentId) {
+      const processingJob = await pdfDbService.getProcessingJob(job.data.documentId)
+      if (processingJob) {
+        await pdfDbService.updateProcessingJob(processingJob.id, {
+          progress: Math.round(progressNum)
+        })
+      }
     }
-  }
-})
+  })
+}
 
 // Queue management functions
 export class PDFQueueManager {
@@ -128,6 +130,18 @@ export class PDFQueueManager {
     options: PDFProcessingOptions,
     userId?: string
   ): Promise<string> {
+    if (!pdfProcessingQueue) {
+      // Process immediately without queue if Redis is not available
+      console.log(`Processing PDF immediately for document ${documentId} (no Redis)`)
+      try {
+        await pdfProcessor.processPDF(fileBuffer, documentId, options)
+        return `immediate-${documentId}-${Date.now()}`
+      } catch (error) {
+        console.error('Immediate PDF processing failed:', error)
+        throw error
+      }
+    }
+
     try {
       const job = await pdfProcessingQueue.add(
         'process-pdf',
@@ -153,6 +167,23 @@ export class PDFQueueManager {
   }
 
   async getJobStatus(jobId: string) {
+    if (!pdfProcessingQueue) {
+      // Return completed status for immediate processing
+      if (jobId.startsWith('immediate-')) {
+        return {
+          id: jobId,
+          status: 'completed',
+          progress: 100,
+          data: null,
+          processedOn: Date.now(),
+          finishedOn: Date.now(),
+          failedReason: null,
+          returnvalue: { success: true }
+        }
+      }
+      return null
+    }
+
     try {
       const job = await pdfProcessingQueue.getJob(jobId)
       if (!job) {
