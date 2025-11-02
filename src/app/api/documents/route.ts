@@ -13,8 +13,36 @@ export async function GET(request: Request) {
     if (!isDatabaseConfigured()) {
       console.log('📋 Database not configured, returning demo documents')
       
-      // Return demo documents
-      const demoDocuments = [
+      // Get uploaded documents from demo store
+      const { demoStore } = await import('@/lib/demo-document-store')
+      const uploadedDocs = demoStore.getAllDocuments()
+      
+      // Convert uploaded documents to the expected format
+      const uploadedDocuments = uploadedDocs.map(doc => ({
+        id: doc.id,
+        title: doc.title,
+        description: doc.description,
+        pageCount: doc.pageCount,
+        createdAt: doc.createdAt,
+        owner: { email: 'demo@example.com', role: 'CREATOR' },
+        shareLinks: demoStore.getShareLinksForDocument(doc.id).map(link => ({
+          id: link.id,
+          code: link.code,
+          expiresAt: link.expiresAt,
+          maxOpens: link.maxOpens,
+          openCount: link.openCount,
+          createdAt: link.createdAt
+        })),
+        _count: { 
+          viewAudits: demoStore.getDocumentViews(doc.id), 
+          shareLinks: demoStore.getShareLinksForDocument(doc.id).length 
+        },
+        hasPassphrase: false,
+        viewAudits: Array(demoStore.getDocumentViews(doc.id)).fill(null).map((_, i) => ({ id: i, viewedAt: new Date() }))
+      }))
+      
+      // Static demo documents
+      const staticDemoDocuments = [
         {
           id: 'demo-sample-1',
           title: 'Sample Document 1',
@@ -41,9 +69,12 @@ export async function GET(request: Request) {
         }
       ]
       
+      // Combine uploaded documents with static demo documents
+      const allDocuments = [...uploadedDocuments, ...staticDemoDocuments]
+      
       return NextResponse.json({ 
         success: true, 
-        documents: demoDocuments,
+        documents: allDocuments,
         demoMode: true 
       })
     }

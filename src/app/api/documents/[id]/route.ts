@@ -28,11 +28,35 @@ export async function GET(
                                 !process.env.DATABASE_URL.includes('placeholder') && 
                                 !process.env.DATABASE_URL.includes('build')
 
-    // Handle demo documents
+    // Handle demo documents and uploaded documents in demo mode
     if (!isDatabaseConfigured || params?.id?.startsWith('demo-')) {
       console.log('📋 Serving demo document:', params?.id)
       
-      // Return demo document data
+      // First check the demo document store for uploaded documents
+      const { demoStore } = await import('@/lib/demo-document-store')
+      const uploadedDoc = demoStore.getDocument(params?.id || '')
+      
+      if (uploadedDoc) {
+        console.log('📋 Found uploaded document in demo store:', uploadedDoc.title)
+        return NextResponse.json({
+          success: true,
+          document: {
+            id: uploadedDoc.id,
+            title: uploadedDoc.title,
+            description: uploadedDoc.description,
+            pageCount: uploadedDoc.pageCount,
+            createdAt: uploadedDoc.createdAt,
+            owner: 'demo@example.com',
+            hasPassphrase: false,
+            drmOptions: uploadedDoc.drmOptions || {},
+            canEdit: true,
+            accessLevel: 'owner'
+          },
+          demoMode: true
+        })
+      }
+      
+      // Fallback to static demo documents
       const demoDocuments = {
         'demo-sample-1': {
           id: 'demo-sample-1',
@@ -64,7 +88,7 @@ export async function GET(
       
       if (!demoDoc) {
         return NextResponse.json({
-          error: 'Demo document not found'
+          error: 'Document not found'
         }, { status: 404 })
       }
       
