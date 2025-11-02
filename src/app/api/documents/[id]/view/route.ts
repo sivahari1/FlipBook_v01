@@ -17,8 +17,9 @@ export async function POST(
                                 !process.env.DATABASE_URL.includes('build')
 
     if (!isDatabaseConfigured) {
-      // Use demo store for view tracking
-      const document = demoStore.getDocument(documentId)
+      // Use persistent demo store for view tracking
+      const { persistentDemoStore } = await import('@/lib/persistent-demo-store')
+      const document = await persistentDemoStore.getDocument(documentId)
       
       if (!document) {
         return NextResponse.json({
@@ -27,7 +28,7 @@ export async function POST(
       }
 
       // Increment view count
-      const newViewCount = demoStore.incrementDocumentViews(documentId)
+      const newViewCount = await persistentDemoStore.incrementDocumentViews(documentId)
       
       return NextResponse.json({
         success: true,

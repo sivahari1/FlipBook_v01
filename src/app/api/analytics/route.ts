@@ -19,19 +19,19 @@ export async function GET(request: NextRequest) {
                                 !process.env.DATABASE_URL.includes('build')
 
     // Try to get real document data first
-    const realDocuments = demoStore.getAllDocuments()
+    const { persistentDemoStore } = await import('@/lib/persistent-demo-store')
+    const realDocuments = await persistentDemoStore.getAllDocuments()
     const hasRealDocuments = realDocuments.length > 0
 
     if (hasRealDocuments) {
       console.log('📊 Using real document data for analytics')
       
       // Calculate analytics from real documents
-      const today = new Date()
-      const recentViews = realDocuments.map((doc, index) => {
+      const recentViews = await Promise.all(realDocuments.map(async (doc, index) => {
         // Get actual view count for this document
-        const documentViews = demoStore.getDocumentViews(doc.id)
+        const documentViews = await persistentDemoStore.getDocumentViews(doc.id)
         // Also add share link views
-        const shareLinks = demoStore.getShareLinksForDocument(doc.id)
+        const shareLinks = await persistentDemoStore.getShareLinksForDocument(doc.id)
         const shareLinkViews = shareLinks.reduce((sum, link) => sum + link.openCount, 0)
         const totalViews = documentViews + shareLinkViews
         
@@ -40,13 +40,13 @@ export async function GET(request: NextRequest) {
           views: totalViews,
           date: new Date(doc.createdAt).toISOString().split('T')[0]
         }
-      }).slice(0, 5) // Show only the 5 most recent
+      }))
 
-      const totalViews = demoStore.getTotalViews() + 
-                        demoStore.getAllDocuments().reduce((sum, doc) => {
-                          const shareLinks = demoStore.getShareLinksForDocument(doc.id)
-                          return sum + shareLinks.reduce((linkSum, link) => linkSum + link.openCount, 0)
-                        }, 0)
+      const totalViews = await persistentDemoStore.getTotalViews() + 
+                        (await Promise.all(realDocuments.map(async (doc) => {
+                          const shareLinks = await persistentDemoStore.getShareLinksForDocument(doc.id)
+                          return shareLinks.reduce((linkSum, link) => linkSum + link.openCount, 0)
+                        }))).reduce((sum, views) => sum + views, 0)
       
       return NextResponse.json({
         success: true,
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
           totalViews,
           totalDocuments: realDocuments.length,
           totalUsers: 1, // Current user
-          recentViews
+          recentViews: recentViews.slice(0, 5) // Show only the 5 most recent
         },
         demoMode: false
       })

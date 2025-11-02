@@ -32,12 +32,12 @@ export async function GET(
     if (!isDatabaseConfigured || params?.id?.startsWith('demo-')) {
       console.log('📋 Serving demo document:', params?.id)
       
-      // First check the demo document store for uploaded documents
-      const { demoStore } = await import('@/lib/demo-document-store')
-      const uploadedDoc = demoStore.getDocument(params?.id || '')
+      // First check the persistent demo store for uploaded documents
+      const { persistentDemoStore } = await import('@/lib/persistent-demo-store')
+      const uploadedDoc = await persistentDemoStore.getDocument(params?.id || '')
       
       if (uploadedDoc) {
-        console.log('📋 Found uploaded document in demo store:', uploadedDoc.title)
+        console.log('📋 Found uploaded document in persistent demo store:', uploadedDoc.title)
         return NextResponse.json({
           success: true,
           document: {

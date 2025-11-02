@@ -44,10 +44,12 @@ export async function POST(request: NextRequest) {
       }
     ]
 
-    // Add documents to demo store
-    sampleDocs.forEach(doc => {
-      demoStore.addDocument(doc)
-    })
+    // Add documents to persistent demo store
+    const { persistentDemoStore } = await import('@/lib/persistent-demo-store')
+    
+    for (const doc of sampleDocs) {
+      await persistentDemoStore.addDocument(doc)
+    }
 
     // Add some share links
     const shareLinks = [
@@ -73,19 +75,19 @@ export async function POST(request: NextRequest) {
       }
     ]
 
-    shareLinks.forEach(link => {
-      demoStore.addShareLink(link)
-    })
+    for (const link of shareLinks) {
+      await persistentDemoStore.addShareLink(link)
+    }
 
     // Add some direct document views
-    demoStore.incrementDocumentViews('test-doc-1') // 1 view
-    demoStore.incrementDocumentViews('test-doc-1') // 2 views
-    demoStore.incrementDocumentViews('test-doc-1') // 3 views
-    demoStore.incrementDocumentViews('test-doc-2') // 1 view
-    demoStore.incrementDocumentViews('test-doc-2') // 2 views
-    demoStore.incrementDocumentViews('test-doc-3') // 1 view
+    await persistentDemoStore.incrementDocumentViews('test-doc-1') // 1 view
+    await persistentDemoStore.incrementDocumentViews('test-doc-1') // 2 views
+    await persistentDemoStore.incrementDocumentViews('test-doc-1') // 3 views
+    await persistentDemoStore.incrementDocumentViews('test-doc-2') // 1 view
+    await persistentDemoStore.incrementDocumentViews('test-doc-2') // 2 views
+    await persistentDemoStore.incrementDocumentViews('test-doc-3') // 1 view
 
-    const stats = demoStore.getStats()
+    const stats = await persistentDemoStore.getStats()
     console.log('📊 Demo store stats after setup:', stats)
 
     return NextResponse.json({
@@ -106,7 +108,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const stats = demoStore.getStats()
+    const { persistentDemoStore } = await import('@/lib/persistent-demo-store')
+    const stats = await persistentDemoStore.getStats()
     
     return NextResponse.json({
       success: true,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getStorageProvider } from '@/lib/storage'
 import { isDatabaseConfigured } from '@/lib/database-config'
-import { demoStore } from '@/lib/demo-document-store'
+import { persistentDemoStore } from '@/lib/persistent-demo-store'
 
 export const runtime = 'nodejs'
 
@@ -53,7 +53,7 @@ async function handleDemoUpload(request: NextRequest) {
       drmOptions: {}
     }
     
-    demoStore.addDocument(demoDocument)
+    await persistentDemoStore.addDocument(demoDocument)
     
     // Return demo response
     const response = {

@@ -40,8 +40,9 @@ export async function GET(
       })
     }
     
-    // First check demo store for uploaded documents
-    const demoData = demoStore.getDocumentByShareCode(code)
+    // First check persistent demo store for uploaded documents
+    const { persistentDemoStore } = await import('@/lib/persistent-demo-store')
+    const demoData = await persistentDemoStore.getDocumentByShareCode(code)
     if (demoData) {
       const { document, shareLink } = demoData
       
@@ -196,9 +197,10 @@ export async function POST(
     const { code } = await params
     console.log('👁️ Recording view for share link:', code)
     
-    // First try demo store
-    if (demoStore.incrementShareLinkViews(code)) {
-      console.log('✅ View recorded for demo share link:', code)
+    // First try persistent demo store
+    const { persistentDemoStore } = await import('@/lib/persistent-demo-store')
+    if (await persistentDemoStore.incrementShareLinkViews(code)) {
+      console.log('✅ View recorded for persistent demo share link:', code)
       return NextResponse.json({
         success: true,
         message: 'View recorded (demo mode)'
