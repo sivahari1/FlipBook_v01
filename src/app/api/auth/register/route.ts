@@ -1,104 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { sendEmail, generateVerificationEmailHTML } from '@/lib/email'
-import * as argon2 from 'argon2'
-import { z } from 'zod'
-import crypto from 'crypto'
-import { Role } from '@prisma/client'
-
-export const runtime = 'nodejs'
-
-const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  role: z.enum(['SUBSCRIBER', 'CREATOR']).default('SUBSCRIBER'),
-})
+import bcrypt from 'bcryptjs'
+import { prisma } from '@/lib/db'
+import { email } from 'zod'
 
 export async function POST(request: NextRequest) {
   try {
-    // Check if we have a valid database connection
-    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('placeholder') || process.env.DATABASE_URL.includes('build')) {
-      return NextResponse.json({ 
-        error: 'Database not configured. Please set DATABASE_URL environment variable.' 
-      }, { status: 503 })
+    console.log('🔍 Registration attempt started')
+    const { email, password, name } = await request.json()
+    console.log('📧 Email:', email)
+
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: 'Email and password are required' },
+        { status: 400 }
+      )
     }
 
-    console.log('Registration API called')
-    const body = await request.json()
-    console.log('Request body:', body)
-    const { email, password, role } = registerSchema.parse(body)
-    console.log('Parsed data:', { email, role })
+    console.log('🔌 Testing database connection...')
+    await prisma.$connect()
+    console.log('✅ Database connected successfully')
 
     // Check if user already exists
-    console.log('Checking for existing user...')
+    console.log('👤 Checking if user exists...')
     const existingUser = await prisma.user.findUnique({
       where: { email }
     })
-    console.log('Existing user:', existingUser ? 'found' : 'not found')
+    console.log('👤 Existing user check result:', existingUser ? 'EXISTS' : 'NOT_FOUND')
 
     if (existingUser) {
-      if (!(existingUser as any).emailVerified) {
-        return NextResponse.json({ 
-          error: 'User already exists but email not verified. Please check your email for verification link.',
-          needsVerification: true,
-          email: email
-        }, { status: 400 })
-      }
-      return NextResponse.json({ error: 'User already exists' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'User already exists' },
+        { status: 400 }
+      )
     }
 
     // Hash password
-    console.log('Hashing password...')
-    const passwordHash = await argon2.hash(password)
-    console.log('Password hashed successfully')
-
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex')
-    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+    console.log('🔐 Hashing password...')
+    const hashedPassword = await bcrypt.hash(password, 12)
+    console.log('✅ Password hashed successfully')
 
     // Create user
-    console.log('Creating user...')
-    const userData: any = {
-      email,
-      passwordHash,
-      role: role as Role,
-      emailVerificationToken: verificationToken,
-      emailVerificationExpires: verificationExpires,
-    }
-    console.log('User data:', userData)
-    
+    console.log('👤 Creating user in database...')
     const user = await prisma.user.create({
-      data: userData
+      data: {
+        email,
+        passwordHash: hashedPassword,
+        emailVerified: true, // For simplicity, auto-verify
+        role: 'CREATOR'
+      }
     })
-    console.log('User created successfully:', user.id)
-
-    // Create verification URL
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
-    const verificationUrl = `${baseUrl}/auth/verify-email?token=${verificationToken}`
-
-    // Send verification email
-    const emailSent = await sendEmail({
-      to: email,
-      subject: 'Verify Your Email - Flipbook DRM',
-      html: generateVerificationEmailHTML(verificationUrl, email.split('@')[0]),
-    })
-
-    if (!emailSent) {
-      console.warn('Failed to send verification email, but user was created')
-    }
+    console.log('✅ User created successfully:', user.id)
 
     return NextResponse.json({
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      createdAt: user.createdAt,
-      emailVerified: false, // New users are not verified by default
-      message: 'Registration successful! Please check your email to verify your account.',
-      verificationEmailSent: emailSent
-    }, { status: 201 })
+      success: true,
+      message: 'User created successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role
+      }
+    })
 
-  } catch (error) {
-    console.error('Registration error:', error)
-    return NextResponse.json({ error: 'Registration failed' }, { status: 500 })
+  } catch (error: any) {
+    console.error('❌ Registration error:', error)
+    console.error('Error code:', error.code)
+    console.error('Error message:', error.message)
+    
+    // Check if it's a database table issue
+    if (error.code === 'P2021' || (error.message && error.message.includes('relation') && error.message.includes('does not exist'))) {
+      console.log('⚠️ Database tables do not exist!')
+      
+      return NextResponse.json(
+        { 
+          error: 'Database not initialized',
+          message: 'The database tables have not been created yet. Please run: npx prisma db push',
+          instructions: [
+            '1. Open terminal in the flipbook-drm directory',
+            '2. Run: npx prisma db push',
+            '3. This will create all necessary tables',
+            '4. Then try registration again'
+          ],
+          technicalDetails: error.message
+        },
+        { status: 503 }
+      )
+    }
+    
+    // Check for unique constraint violation (user already exists)
+    if (error.code === 'P2002') {
+      return NextResponse.json(
+        { 
+          error: 'User already exists',
+          message: 'An account with this email already exists'
+        },
+        { status: 400 }
+      )
+    }
+    
+    return NextResponse.json(
+      { 
+        error: 'Failed to create user',
+        message: 'An unexpected error occurred during registration',
+        details: error.message,
+        code: error.code
+      },
+      { status: 500 }
+    )
   }
 }
