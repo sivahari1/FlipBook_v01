@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -15,6 +16,8 @@ model User {
   emailVerified            Boolean             @default(false)
   emailVerificationToken   String?             @unique
   emailVerificationExpires DateTime?
+  passwordResetToken       String?             @unique
+  passwordResetExpires     DateTime?
   stripeCustomerId         String?
   createdAt                DateTime            @default(now())
   updatedAt                DateTime            @updatedAt
@@ -26,6 +29,7 @@ model User {
   documentAccess           DocumentAccess[]
   pageAccess               PageAccess[]
   documentAccessLogs       DocumentAccessLog[]
+  documentViews            DocumentView[]
 
   @@map("users")
 }
@@ -68,6 +72,8 @@ model Document {
   hasPassphrase     Boolean             @default(false)
   passphraseHash    String?
   storageKey        String
+  shareKey          String?             @unique
+  viewCount         Int                 @default(0)
   tilePrefix        String?
   drmOptions        String              @default("{}")
   createdAt         DateTime            @default(now())
@@ -90,6 +96,7 @@ model Document {
   textSearches      DocumentTextSearch[]
   processingJobs    PDFProcessingJob[]
   accessLogs        DocumentAccessLog[]
+  documentViews     DocumentView[]
 
   @@map("documents")
 }
@@ -260,4 +267,18 @@ model DocumentAccessLog {
   user       User?        @relation(fields: [userId], references: [id])
 
   @@map("document_access_logs")
+}
+
+model DocumentView {
+  id           String    @id @default(cuid())
+  documentId   String
+  viewerIp     String?
+  viewerUserId String?
+  viewedAt     DateTime  @default(now())
+  sessionId    String?
+  userAgent    String?
+  document     Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  viewerUser   User?     @relation(fields: [viewerUserId], references: [id])
+
+  @@map("document_views")
 }
