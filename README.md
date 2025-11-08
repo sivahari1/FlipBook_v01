@@ -1,4 +1,4 @@
-# FlipBook DRM - Secure Document Sharing Platform
+# FlipBook DRM - Secure Document Platform - Secure Document Sharing Platform
 
 A comprehensive document protection and sharing platform with advanced DRM features.
 
