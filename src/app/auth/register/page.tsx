@@ -1,193 +1,74 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CognitoAuthService } from '@/lib/cognito-auth'
-import { LoadingSpinner } from '@/components/auth/LoadingSpinner'
-import { useAuth } from '@/contexts/AuthContext'
-import { getPlanById } from '@/lib/subscription-plans'
 
-// Disable static generation for this page
-export const dynamic = 'force-dynamic'
-
-function RegisterForm() {
-  const [formData, setFormData] = useState({
-    username: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
-  })
-  const [isLoading, setIsLoading] = useState(false)
+export default function RegisterPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [step, setStep] = useState<'register' | 'verify'>('register')
-  const [verificationCode, setVerificationCode] = useState('')
+  const [success, setSuccess] = useState(false)
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const { isAuthenticated } = useAuth()
-  
-  const planId = searchParams.get('plan')
-  const redirectType = searchParams.get('redirect')
-  const plan = planId ? getPlanById(planId) : null
 
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.push('/dashboard')
-    }
-  }, [isAuthenticated, router])
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({
-      ...prev,
-      [e.target.name]: e.target.value
-    }))
-    setError('')
-  }
-
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
+    setLoading(true)
     setError('')
 
-    // Validate passwords match
-    if (formData.password !== formData.confirmPassword) {
+    if (password !== confirmPassword) {
       setError('Passwords do not match')
-      setIsLoading(false)
+      setLoading(false)
       return
     }
 
-    // Validate password strength
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long')
-      setIsLoading(false)
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long')
+      setLoading(false)
       return
     }
 
     try {
-      const result = await CognitoAuthService.signUp(formData.username, formData.password, {
-        email: formData.email
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
       })
-      
-      if (result.success) {
-        setStep('verify')
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setSuccess(true)
+        setTimeout(() => {
+          router.push('/auth/sign-in')
+        }, 2000)
       } else {
-        setError(result.error || 'Registration failed')
-      }
-    } catch (error: any) {
-      setError(error.message || 'Registration failed')
-    }
-    
-    setIsLoading(false)
-  }
-
-  const handleVerifyEmail = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError('')
-
-    try {
-      const result = await CognitoAuthService.confirmSignUp(formData.username, verificationCode)
-      
-      if (result.success) {
-        // Redirect based on plan selection
-        if (planId && redirectType === 'checkout') {
-          router.push(`/checkout/${planId}`)
-        } else if (planId === 'free-trial') {
-          router.push('/dashboard?trial=true')
+        // Check if user already exists
+        if (data.error === 'User already exists' || response.status === 400) {
+          setError('This email is already registered.')
         } else {
-          router.push('/dashboard')
+          setError(data.error || 'Registration failed')
         }
-      } else {
-        setError(result.error || 'Verification failed')
       }
-    } catch (error: any) {
-      setError(error.message || 'Verification failed')
+    } catch (err) {
+      setError('An error occurred. Please try again.')
+    } finally {
+      setLoading(false)
     }
-    
-    setIsLoading(false)
   }
 
-  const handleResendCode = async () => {
-    setIsLoading(true)
-    try {
-      const result = await CognitoAuthService.resendConfirmationCode(formData.username)
-      if (result.success) {
-        setError('')
-        alert('Verification code sent! Check your email.')
-      } else {
-        setError(result.error || 'Failed to resend code')
-      }
-    } catch (error: any) {
-      setError(error.message || 'Failed to resend code')
-    }
-    setIsLoading(false)
-  }
-
-  if (step === 'verify') {
+  if (success) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-gray-900">Verify Your Email</h1>
-            <p className="text-gray-600 mt-2">
-              We sent a verification code to <strong>{formData.email}</strong>
-            </p>
-          </div>
-
-          <form onSubmit={handleVerifyEmail} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Verification Code
-              </label>
-              <input
-                type="text"
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value)}
-                placeholder="Enter 6-digit code"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-lg tracking-widest"
-                required
-                maxLength={6}
-                pattern="[0-9]{6}"
-              />
-            </div>
-
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-            >
-              {isLoading ? <LoadingSpinner size="sm" /> : (
-                plan ? `Verify & Continue with ${plan.name}` : 'Verify & Start Free Trial'
-              )}
-            </button>
-
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={handleResendCode}
-                disabled={isLoading}
-                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-              >
-                Didn't receive the code? Resend
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h3 className="font-semibold text-blue-800 mb-2">📧 Check Your Email</h3>
-            <ul className="text-sm text-blue-700 space-y-1">
-              <li>• Check your inbox and spam folder</li>
-              <li>• Look for email from: no-reply@verificationemail.com</li>
-              <li>• Subject: "Your verification code"</li>
-              <li>• Wait up to 5 minutes for delivery</li>
-            </ul>
+      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 text-center">
+            <div className="text-6xl mb-4">✅</div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Registration Successful!</h2>
+            <p className="text-gray-600">Redirecting to sign in...</p>
           </div>
         </div>
       </div>
@@ -195,157 +76,117 @@ function RegisterForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">
-            {plan ? `Subscribe to ${plan.name}` : 'Start Your Free Trial'}
-          </h1>
-          <p className="text-gray-600 mt-2">
-            {plan ? `Create your account to continue with ${plan.name}` : 'Get 7 days free access to all premium features'}
-          </p>
-        </div>
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+          Create your account
+        </h2>
+      </div>
 
-        <form onSubmit={handleRegister} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Username
-            </label>
-            <input
-              type="text"
-              name="username"
-              value={formData.username}
-              onChange={handleInputChange}
-              placeholder="Choose a username"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-              minLength={3}
-              pattern="[a-zA-Z0-9_-]+"
-              title="Username can only contain letters, numbers, underscores, and hyphens"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              3+ characters, letters, numbers, underscores, and hyphens only
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email Address
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleInputChange}
-              placeholder="Enter your email"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
-            <input
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleInputChange}
-              placeholder="Create a strong password"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-              minLength={8}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Must be at least 8 characters with uppercase, lowercase, number, and special character
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Confirm Password
-            </label>
-            <input
-              type="password"
-              name="confirmPassword"
-              value={formData.confirmPassword}
-              onChange={handleInputChange}
-              placeholder="Confirm your password"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-          >
-            {isLoading ? <LoadingSpinner size="sm" /> : (
-              plan ? `Continue with ${plan.name}` : 'Start Free Trial'
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          <form className="space-y-6" onSubmit={handleSubmit}>
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-md p-4">
+                <p className="text-sm text-red-600 mb-2">{error}</p>
+                {error.includes('already registered') && (
+                  <div className="mt-3 pt-3 border-t border-red-200">
+                    <p className="text-sm text-gray-700 mb-2">Already have an account?</p>
+                    <div className="flex gap-2">
+                      <Link
+                        href="/auth/sign-in"
+                        className="text-sm text-blue-600 hover:text-blue-500 font-medium"
+                      >
+                        Sign In
+                      </Link>
+                      <span className="text-gray-400">|</span>
+                      <Link
+                        href="/auth/forgot-password"
+                        className="text-sm text-blue-600 hover:text-blue-500 font-medium"
+                      >
+                        Forgot Password?
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
-          </button>
-        </form>
 
-        <div className="mt-6 text-center">
-          <p className="text-sm text-gray-600">
-            Already have an account?{' '}
-            <Link href="/auth/sign-in" className="text-blue-600 hover:text-blue-700 font-medium">
-              Sign in
-            </Link>
-          </p>
-        </div>
-
-        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <h3 className="font-semibold text-green-800 mb-2">
-            {plan ? `🎯 ${plan.name} Features:` : '🎉 What\'s Included in Your Free Trial:'}
-          </h3>
-          <ul className="text-sm text-green-700 space-y-1">
-            {plan ? (
-              plan.features.slice(0, 5).map((feature, index) => (
-                <li key={index}>• {feature.name}</li>
-              ))
-            ) : (
-              <>
-                <li>• Upload and protect unlimited PDFs</li>
-                <li>• Advanced DRM and watermarking</li>
-                <li>• Analytics dashboard</li>
-                <li>• 7 days full access</li>
-                <li>• No credit card required</li>
-              </>
-            )}
-          </ul>
-          {plan && (
-            <div className="mt-2 text-sm text-green-600 font-medium">
-              Price: ₹{(plan.pricing.monthly / 100).toLocaleString('en-IN')} for {
-                plan.id === 'monthly' ? '1 month' :
-                plan.id === 'quarterly' ? '3 months' :
-                plan.id === 'biannual' ? '6 months' :
-                plan.id === 'annual' ? '12 months' : 'the period'
-              }
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                Email address
+              </label>
+              <div className="mt-1">
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                />
+              </div>
             </div>
-          )}
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                Password
+              </label>
+              <div className="mt-1">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+                Confirm Password
+              </label>
+              <div className="mt-1">
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                {loading ? 'Creating account...' : 'Create account'}
+              </button>
+            </div>
+
+            <div className="text-center">
+              <Link
+                href="/auth/sign-in"
+                className="text-sm text-blue-600 hover:text-blue-500"
+              >
+                Already have an account? Sign in
+              </Link>
+            </div>
+          </form>
         </div>
       </div>
     </div>
-  )
-}
-
-export default function RegisterPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <LoadingSpinner size="lg" />
-      </div>
-    }>
-      <RegisterForm />
-    </Suspense>
   )
 }

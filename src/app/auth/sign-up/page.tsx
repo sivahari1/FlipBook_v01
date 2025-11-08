@@ -51,6 +51,10 @@ export default function SignUpPage() {
       const data = await response.json()
 
       if (!response.ok) {
+        // Check if user already exists
+        if (data.error === 'User already exists' || response.status === 400) {
+          throw new Error('This email is already registered.')
+        }
         throw new Error(data.error || 'Registration failed')
       }
 
@@ -142,9 +146,23 @@ export default function SignUpPage() {
               padding: '1rem',
               marginBottom: '1.5rem'
             }}>
-              <p style={{ color: '#dc2626', fontSize: '0.875rem', margin: 0 }}>
+              <p style={{ color: '#dc2626', fontSize: '0.875rem', marginBottom: error.includes('already registered') ? '0.75rem' : 0 }}>
                 ⚠️ {error}
               </p>
+              {error.includes('already registered') && (
+                <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #fecaca' }}>
+                  <p style={{ color: '#374151', fontSize: '0.875rem', marginBottom: '0.5rem' }}>Already have an account?</p>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <a href="/auth/sign-in" style={{ color: '#2563eb', fontSize: '0.875rem', fontWeight: '600', textDecoration: 'none' }}>
+                      Sign In
+                    </a>
+                    <span style={{ color: '#9ca3af' }}>|</span>
+                    <a href="/auth/forgot-password" style={{ color: '#2563eb', fontSize: '0.875rem', fontWeight: '600', textDecoration: 'none' }}>
+                      Forgot Password?
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           
