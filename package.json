@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && prisma migrate deploy && next build",
+    "build": "prisma generate && next build",
     "postinstall": "prisma generate",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build",
+    "vercel-build": "prisma generate && next build",
     "build:production": "NEXT_TELEMETRY_DISABLED=1 next build --no-lint",
     "build:deploy": "node build-for-deployment.js",
     "build:amplify": "node amplify-env-setup.js && npx prisma generate && next build",
