@@ -1,470 +1,164 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAuth } from '@/contexts/AuthContext'
-import { Header } from '@/components/layout/Header'
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Upload, FileText, Share2, Shield, Eye, Calendar, ExternalLink, Copy, MoreVertical, Trash2, RefreshCw, Mail } from 'lucide-react'
-import { ShareDialog } from '@/components/ui/share-dialog'
 
 interface Document {
   id: string
   title: string
-  description: string | null
+  description?: string
   pageCount: number
   createdAt: string
-  owner: {
-    email: string | null
-    role: string | null
-  }
-  shareLinks: Array<{
-    id: string
-    code: string
-    expiresAt: string | null
-    maxOpens: number | null
-    openCount: number
-    createdAt: string
-  }>
-  _count: {
-    viewAudits: number
-    shareLinks: number
-  }
-  hasPassphrase: boolean
+  viewCount: number
 }
 
 export default function DocumentsPage() {
-  const { user, isLoading, isAuthenticated } = useAuth()
+  const { data: session, status } = useSession()
+  const router = useRouter()
   const [documents, setDocuments] = useState<Document[]>([])
-  const [isLoadingDocs, setIsLoadingDocs] = useState(true)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [emailShareDialog, setEmailShareDialog] = useState<{ isOpen: boolean; document?: Document }>({
-    isOpen: false
-  })
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchDocuments()
+    if (status === 'loading') return
+    
+    if (!session) {
+      router.push('/auth/sign-in')
+      return
     }
-  }, [isAuthenticated])
-
-  // Refresh documents when page becomes visible (user returns from upload)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && isAuthenticated) {
-        console.log('📱 Page became visible, refreshing documents...')
-        fetchDocuments()
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [isAuthenticated])
+    
+    fetchDocuments()
+  }, [session, status, router])
 
   const fetchDocuments = async () => {
     try {
-      setIsLoadingDocs(true)
-      
-      // Prepare headers with user email for authentication
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      }
-      
-      // Add user email to headers if available
-      if (user?.email) {
-        headers['x-user-email'] = user.email
-      }
-      
-      // Try main documents endpoint first
-      let response = await fetch('/api/documents', {
-        headers
-      })
-      
-      // If main endpoint fails (500 - database not configured), use demo mode with client storage
-      if (response.status === 500) {
-        console.log('Database not configured, using demo documents...')
-        
-        // Get uploaded documents from localStorage
-        let uploadedDocs = []
-        try {
-          const stored = localStorage.getItem('flipbook-demo-documents')
-          uploadedDocs = stored ? JSON.parse(stored) : []
-          console.log('📋 Found uploaded documents in localStorage:', uploadedDocs.length)
-        } catch (e) {
-          console.log('No uploaded documents found in localStorage')
-        }
-        
-        // Get default demo documents
-        const demoResponse = await fetch('/api/documents/demo')
-        const demoData = await demoResponse.json()
-        
-        // Combine uploaded and demo documents
-        const allDocuments = [...uploadedDocs, ...(demoData.documents || [])]
-        
-        setDocuments(allDocuments)
-        if (uploadedDocs.length > 0) {
-          setError(`Demo Mode: Showing ${uploadedDocs.length} uploaded document(s) and ${demoData.documents?.length || 0} sample documents.`)
-        } else {
-          setError('Demo Mode: Database not configured. Showing sample documents. Upload your own PDFs to see them here.')
-        }
-        return
-      }
-      
+      setLoading(true)
+      const response = await fetch('/api/documents')
       const data = await response.json()
       
-      if (data.success) {
+      if (response.ok && data.success) {
         setDocuments(data.documents)
-        if (data.demoMode) {
-          setError('Demo Mode: Showing sample documents. Upload your own PDFs to see them here.')
-        }
       } else {
-        setError(data.error || 'Failed to fetch documents')
+        setError(data.error || 'Failed to load documents')
       }
-    } catch (error) {
-      console.error('Error fetching documents:', error)
+    } catch (err) {
       setError('Failed to load documents')
     } finally {
-      setIsLoadingDocs(false)
+      setLoading(false)
     }
   }
 
-  const createShareLink = async (documentId: string) => {
-    try {
-      const response = await fetch(`/api/documents/${documentId}/share`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          expiresAt: null, // No expiration
-          maxOpens: null,  // Unlimited opens
-        }),
-      })
-      
-      const data = await response.json()
-      
-      if (data.success) {
-        // Refresh documents to show new share link
-        fetchDocuments()
-        
-        // Copy share link to clipboard
-        const shareUrl = `${window.location.origin}/share/${data.share.code}`
-        await navigator.clipboard.writeText(shareUrl)
-        alert('Share link created and copied to clipboard!')
-      } else {
-        alert('Failed to create share link: ' + (data.error || 'Unknown error'))
-      }
-    } catch (error) {
-      console.error('Error creating share link:', error)
-      alert('Failed to create share link')
-    }
-  }
-
-  const deleteDocument = async (documentId: string, title: string) => {
-    if (!confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
-      return
-    }
+  const deleteDocument = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this document?')) return
 
     try {
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      }
-      
-      if (user?.email) {
-        headers['x-user-email'] = user.email
-      }
-
-      const response = await fetch(`/api/documents/${documentId}`, {
-        method: 'DELETE',
-        headers
+      const response = await fetch(`/api/documents/${id}`, {
+        method: 'DELETE'
       })
       
       if (response.ok) {
-        alert('Document deleted successfully!')
-        // Refresh documents list
-        fetchDocuments()
+        setDocuments(documents.filter(doc => doc.id !== id))
       } else {
-        const errorData = await response.json()
-        alert(`Failed to delete document: ${errorData.error}`)
+        const data = await response.json()
+        alert(data.error || 'Failed to delete document')
       }
-    } catch (error) {
-      console.error('Error deleting document:', error)
+    } catch (err) {
       alert('Failed to delete document')
     }
   }
 
-  const copyShareLink = async (code: string) => {
-    try {
-      const shareUrl = `${window.location.origin}/share/${code}`
-      await navigator.clipboard.writeText(shareUrl)
-      alert('Share link copied to clipboard!')
-    } catch (error) {
-      console.error('Error copying to clipboard:', error)
-      alert('Failed to copy link')
-    }
-  }
-
-  const handleEmailShare = (document: Document) => {
-    setEmailShareDialog({ isOpen: true, document })
-  }
-
-  const handleEmailShareSubmit = async (email: string, message?: string) => {
-    if (!emailShareDialog.document) return { success: false, error: 'No document selected' }
-
-    try {
-      const response = await fetch(`/api/documents/${emailShareDialog.document.id}/share-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          message
-        }),
-      })
-
-      const data = await response.json()
-      
-      if (data.success) {
-        // Refresh documents to get updated share count
-        fetchDocuments()
-        return {
-          success: true,
-          shareUrl: data.shareUrl,
-          message: data.message
-        }
-      } else {
-        return {
-          success: false,
-          error: data.error || 'Failed to share document'
-        }
-      }
-    } catch (error) {
-      console.error('Error sharing document via email:', error)
-      return {
-        success: false,
-        error: 'Network error occurred'
-      }
-    }
-  }
-
-  if (isLoading) {
+  if (status === 'loading' || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="text-gray-600 mt-4">Loading...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading documents...</p>
         </div>
       </div>
     )
   }
 
-  if (!isAuthenticated) {
-    return null // AuthProvider will handle redirect
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header />
-      
-      <div className="container mx-auto px-4 py-8 pt-24">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">My Documents</h1>
-            <p className="text-gray-600">Manage and share your protected documents</p>
+            <h1 className="text-3xl font-bold text-gray-900">My Documents</h1>
+            <p className="text-gray-600 mt-2">Manage your secure PDF documents</p>
           </div>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={fetchDocuments}
-              disabled={isLoadingDocs}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-              title="Refresh documents list"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoadingDocs ? 'animate-spin' : ''}`} />
-            </button>
-            <Link
-              href="/upload"
-              className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl inline-flex items-center space-x-2"
-            >
-              <Upload className="w-5 h-5" />
-              <span>Upload Document</span>
-            </Link>
-          </div>
+          <Link
+            href="/upload"
+            className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            + Upload Document
+          </Link>
         </div>
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <p className="text-red-700">{error}</p>
+            <p className="text-red-600">{error}</p>
           </div>
         )}
 
-        {isLoadingDocs ? (
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading documents...</p>
-            </div>
-          </div>
-        ) : documents.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-            <div className="text-center py-12">
-              <Upload className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">No documents yet</h3>
-              <p className="text-gray-600 mb-6">Upload your first PDF to get started with secure document sharing</p>
-              <Link
-                href="/upload"
-                className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-lg font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl inline-flex items-center space-x-2"
-              >
-                <Upload className="w-5 h-5" />
-                <span>Upload Document</span>
-              </Link>
-            </div>
+        {/* Documents Grid */}
+        {documents.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">📄</div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No documents yet</h3>
+            <p className="text-gray-600 mb-6">Upload your first PDF document to get started</p>
+            <Link
+              href="/upload"
+              className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Upload Document
+            </Link>
           </div>
         ) : (
-          <div className="space-y-6">
-            {documents.map((doc) => (
-              <div key={doc.id} className="bg-white rounded-lg shadow-lg p-6">
-                <div className="flex items-start justify-between">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {documents.map((document) => (
+              <div key={document.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+                <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <FileText className="w-6 h-6 text-blue-600" />
-                      <h3 className="text-xl font-semibold text-gray-900">{doc.title}</h3>
-                    </div>
-                    
-                    {doc.description && (
-                      <p className="text-gray-600 mb-3">{doc.description}</p>
-                    )}
-                    
-                    <div className="flex items-center space-x-6 text-sm text-gray-500 mb-4">
-                      <div className="flex items-center space-x-1">
-                        <FileText className="w-4 h-4" />
-                        <span>{doc.pageCount} pages</span>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <Eye className="w-4 h-4" />
-                        <span>{doc._count?.viewAudits || 0} views</span>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <Share2 className="w-4 h-4" />
-                        <span>{doc._count?.shareLinks || 0} share links</span>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <Calendar className="w-4 h-4" />
-                        <span>Created {new Date(doc.createdAt).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-
-                    {/* Share Links */}
-                    {doc.shareLinks.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="text-sm font-medium text-gray-700 mb-2">Share Links:</h4>
-                        <div className="space-y-2">
-                          {doc.shareLinks.map((link) => (
-                            <div key={link.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
-                              <div className="flex items-center space-x-3">
-                                <ExternalLink className="w-4 h-4 text-gray-400" />
-                                <div>
-                                  <p className="text-sm font-medium text-gray-900">
-                                    /share/{link.code}
-                                  </p>
-                                  <p className="text-xs text-gray-500">
-                                    {link.openCount} opens • Created {new Date(link.createdAt).toLocaleDateString()}
-                                  </p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => copyShareLink(link.code)}
-                                className="flex items-center space-x-1 text-blue-600 hover:text-blue-700 text-sm font-medium"
-                              >
-                                <Copy className="w-4 h-4" />
-                                <span>Copy</span>
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2 truncate">
+                      {document.title}
+                    </h3>
+                    {document.description && (
+                      <p className="text-gray-600 text-sm mb-3 line-clamp-2">
+                        {document.description}
+                      </p>
                     )}
                   </div>
-
-                  <div className="flex items-center space-x-2 ml-4">
-                    <Link
-                      href={`/view/${doc.id}`}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center space-x-2"
-                    >
-                      <Eye className="w-4 h-4" />
-                      <span>View</span>
-                    </Link>
-                    
-                    <button
-                      onClick={() => handleEmailShare(doc)}
-                      className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors inline-flex items-center space-x-2"
-                    >
-                      <Mail className="w-4 h-4" />
-                      <span>Share via Email</span>
-                    </button>
-                    
-                    <button
-                      onClick={() => createShareLink(doc.id)}
-                      className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors inline-flex items-center space-x-2"
-                    >
-                      <Share2 className="w-4 h-4" />
-                      <span>Get Link</span>
-                    </button>
-                    
-                    <button
-                      onClick={() => deleteDocument(doc.id, doc.title)}
-                      className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors inline-flex items-center space-x-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Delete</span>
-                    </button>
-                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
+                  <span>{document.pageCount} pages</span>
+                  <span>{document.viewCount} views</span>
+                </div>
+                
+                <div className="text-xs text-gray-400 mb-4">
+                  Created {new Date(document.createdAt).toLocaleDateString()}
+                </div>
+                
+                <div className="flex space-x-2">
+                  <Link
+                    href={`/document/${document.id}`}
+                    className="flex-1 text-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    View
+                  </Link>
+                  <button
+                    onClick={() => deleteDocument(document.id)}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}
           </div>
-        )}
-
-        {/* Features Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900">Secure Storage</h3>
-            </div>
-            <p className="text-gray-600">Your documents are encrypted and stored securely in the cloud with enterprise-grade protection.</p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                <Share2 className="w-6 h-6 text-green-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900">Easy Sharing</h3>
-            </div>
-            <p className="text-gray-600">Generate secure sharing links with customizable permissions and expiration dates.</p>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Shield className="w-6 h-6 text-purple-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900">DRM Protection</h3>
-            </div>
-            <p className="text-gray-600">Advanced DRM features prevent unauthorized copying, printing, and downloading.</p>
-          </div>
-        </div>
-
-        {/* Email Share Dialog */}
-        {emailShareDialog.document && (
-          <ShareDialog
-            isOpen={emailShareDialog.isOpen}
-            onClose={() => setEmailShareDialog({ isOpen: false })}
-            document={emailShareDialog.document}
-            onShare={handleEmailShareSubmit}
-          />
         )}
       </div>
     </div>

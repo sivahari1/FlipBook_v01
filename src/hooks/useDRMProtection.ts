@@ -35,6 +35,9 @@ export function useDRMProtection(options: UseDRMProtectionOptions = {}) {
     lastViolation: null
   })
 
+  const optionsRef = useRef(options)
+  optionsRef.current = options
+
   const handleViolation = useCallback(async (violation: SecurityViolation) => {
     setState(prev => ({
       ...prev,
@@ -44,10 +47,10 @@ export function useDRMProtection(options: UseDRMProtectionOptions = {}) {
     }))
 
     // Call external handler
-    onViolation?.(violation)
+    optionsRef.current.onViolation?.(violation)
 
     // Log to server if enabled
-    if (logViolations) {
+    if (optionsRef.current.logViolations) {
       try {
         await fetch('/api/security/violation', {
           method: 'POST',
@@ -70,23 +73,26 @@ export function useDRMProtection(options: UseDRMProtectionOptions = {}) {
     }
 
     // Show warning if enabled
-    if (showWarnings && violation.severity !== 'low') {
+    if (optionsRef.current.showWarnings && violation.severity !== 'low') {
       showViolationNotification(violation)
     }
-  }, [onViolation, logViolations, showWarnings])
+  }, [])
 
   const activate = useCallback(() => {
-    if (!enabled || drmRef.current?.isActive) return
+    if (!optionsRef.current.enabled || drmRef.current?.isActive) return
 
     if (!drmRef.current) {
       drmRef.current = new DRMProtection(handleViolation)
     }
 
     drmRef.current.activate()
-    setState(prev => ({ ...prev, isActive: true }))
+    setState(prev => {
+      if (prev.isActive) return prev // Prevent unnecessary updates
+      return { ...prev, isActive: true }
+    })
     
     console.log('🔒 DRM Protection activated via hook')
-  }, [enabled, handleViolation])
+  }, [handleViolation])
 
   const deactivate = useCallback(() => {
     if (!drmRef.current?.isActive) return
@@ -125,7 +131,7 @@ export function useDRMProtection(options: UseDRMProtectionOptions = {}) {
 
   // Auto-activate on mount if enabled
   useEffect(() => {
-    if (enabled && autoActivate) {
+    if (enabled && autoActivate && !drmRef.current?.isActive) {
       activate()
     }
 
@@ -134,7 +140,7 @@ export function useDRMProtection(options: UseDRMProtectionOptions = {}) {
         drmRef.current.deactivate()
       }
     }
-  }, [enabled, autoActivate, activate])
+  }, [enabled, autoActivate])
 
   // Cleanup on unmount
   useEffect(() => {

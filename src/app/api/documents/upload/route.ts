@@ -1,290 +1,149 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { getStorageProvider } from '@/lib/storage'
-import { isDatabaseConfigured } from '@/lib/database-config'
-import { persistentDemoStore } from '@/lib/persistent-demo-store'
-
-export const runtime = 'nodejs'
-
-// Demo upload handler for when database is not configured
-async function handleDemoUpload(request: NextRequest) {
-  try {
-    const formData = await request.formData()
-    const title = formData.get('title') as string
-    const description = formData.get('description') as string || null
-    const file = formData.get('document') as File
-    
-    // Validate required fields
-    if (!title || !title.trim()) {
-      return NextResponse.json({ error: 'Document title is required' }, { status: 400 })
-    }
-    
-    if (!file || file.size === 0) {
-      return NextResponse.json({ error: 'Document file is required' }, { status: 400 })
-    }
-    
-    // Validate file type
-    if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
-      return NextResponse.json({ error: 'Only PDF files are allowed' }, { status: 400 })
-    }
-    
-    // Generate a unique document ID
-    const documentId = `demo-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
-    
-    // Save file using demo storage
-    const storage = getStorageProvider()
-    const fileName = `${documentId}.pdf`
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
-    const storageKey = await storage.saveFile(fileName, fileBuffer)
-    
-    // Get page count (simplified for demo)
-    let pageCount = Math.floor(Math.random() * 20) + 5
-    
-    // Store in demo document store
-    const demoDocument = {
-      id: documentId,
-      title: title.trim(),
-      description: description?.trim() || null,
-      pageCount,
-      createdAt: new Date().toISOString(),
-      fileName: `${documentId}.pdf`,
-      fileSize: fileBuffer.length,
-      storageKey,
-      drmOptions: {}
-    }
-    
-    await persistentDemoStore.addDocument(demoDocument)
-    
-    // Return demo response
-    const response = {
-      success: true,
-      document: {
-        ...demoDocument,
-        demoMode: true,
-        owner: { email: 'demo@example.com', role: 'CREATOR' },
-        shareLinks: [],
-        _count: { viewAudits: 0, shareLinks: 0 },
-        hasPassphrase: false,
-        viewAudits: []
-      },
-      message: 'Document uploaded successfully in demo mode!',
-      demoMode: true
-    }
-    
-    return NextResponse.json(response, { status: 200 })
-    
-  } catch (error) {
-    console.error('❌ Demo upload error:', error)
-    return NextResponse.json({ 
-      error: 'Failed to upload document in demo mode',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
-  }
-}
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { prisma } from '@/lib/db'
+import { writeFile, mkdir } from 'fs/promises'
+import { join } from 'path'
+import { PDFDocument } from 'pdf-lib'
 
 export async function POST(request: NextRequest) {
-  console.log('📤 Document upload API called')
-  
   try {
-    // Check if we have a valid database connection
-    if (!isDatabaseConfigured()) {
-      console.log('⚠️ Database not configured, using demo mode')
-      return handleDemoUpload(request)
+    console.log('📤 Upload request received')
+    
+    const session = await getServerSession(authOptions)
+    console.log('🔐 Session:', session ? 'Found' : 'Not found')
+    
+    if (!session?.user?.email) {
+      console.log('❌ No session or email found')
+      return NextResponse.json({ error: 'Unauthorized - Please sign in first' }, { status: 401 })
     }
 
-    // FIRST: Check authentication before processing any form data
-    const userEmail = request.headers.get('x-user-email')
-    
-    if (!userEmail) {
-      console.log('❌ No user email provided in headers')
-      return NextResponse.json({ 
-        error: 'Authentication required',
-        message: 'You must be signed in to upload documents'
-      }, { status: 401 })
-    }
-    
-    console.log('🔍 Looking for authenticated user:', userEmail)
-    
-    // Find the authenticated user with proper error handling
-    let currentUser
-    try {
-      currentUser = await prisma.user.findUnique({
-        where: { email: userEmail }
-      })
-    } catch (dbError) {
-      console.error('❌ Database connection error:', dbError)
-      return NextResponse.json({ 
-        error: 'Database connection failed',
-        message: 'Unable to verify user authentication. Please try again.'
-      }, { status: 503 })
-    }
-    
-    if (!currentUser) {
-      console.log('❌ User not found in database:', userEmail)
-      return NextResponse.json({ 
-        error: 'User not found',
-        message: 'Please complete your registration'
-      }, { status: 403 })
-    }
-    
-    console.log('✅ Authenticated user found:', currentUser.email, 'Role:', currentUser.role)
+    console.log('👤 Looking for user:', session.user.email)
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email }
+    })
 
-    // SECOND: Parse form data after authentication is confirmed
+    if (!user) {
+      console.log('❌ User not found in database')
+      return NextResponse.json({ error: 'User not found in database' }, { status: 403 })
+    }
+
+    console.log('✅ User found:', user.email)
+
     const formData = await request.formData()
-    console.log('📋 Form data parsed successfully')
-    
-    // Extract and validate form data
+    const file = formData.get('file') as File
     const title = formData.get('title') as string
-    const description = formData.get('description') as string || null
-    const file = formData.get('document') as File
-    const watermark = formData.get('watermark') === 'on' || formData.get('watermark') === 'true'
-    const watermarkType = formData.get('watermarkType') as string || 'text'
-    const watermarkText = formData.get('watermarkText') as string || ''
-    const watermarkImage = formData.get('watermarkImage') as File | null
-    const preventDownload = formData.get('preventDownload') === 'on' || formData.get('preventDownload') === 'true'
-    const trackViews = formData.get('trackViews') === 'on' || formData.get('trackViews') === 'true'
-    const expiry = formData.get('expiry') as string
-    const maxViews = formData.get('maxViews') as string
-    
-    console.log('📝 Extracted data:', {
-      title,
+    const description = formData.get('description') as string || ''
+
+    console.log('📋 Form data:', {
       hasFile: !!file,
       fileName: file?.name,
       fileSize: file?.size,
-      watermark,
-      watermarkType
+      fileType: file?.type,
+      title,
+      description: description ? 'provided' : 'empty'
     })
-    
-    // Validate required fields
-    if (!title || !title.trim()) {
-      console.log('❌ Missing title')
-      return NextResponse.json({ error: 'Document title is required' }, { status: 400 })
+
+    if (!file || !title) {
+      console.log('❌ Missing file or title')
+      return NextResponse.json({ 
+        error: 'File and title are required',
+        details: {
+          hasFile: !!file,
+          hasTitle: !!title
+        }
+      }, { status: 400 })
     }
-    
-    if (!file || file.size === 0) {
-      console.log('❌ Missing or empty file')
-      return NextResponse.json({ error: 'Document file is required' }, { status: 400 })
-    }
-    
-    // Validate file type
-    if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+
+    if (file.type !== 'application/pdf') {
       console.log('❌ Invalid file type:', file.type)
-      return NextResponse.json({ error: 'Only PDF files are allowed' }, { status: 400 })
-    }
-    
-    // Validate file size (50MB limit)
-    const maxSize = 50 * 1024 * 1024 // 50MB
-    if (file.size > maxSize) {
-      console.log('❌ File too large:', file.size)
-      return NextResponse.json({ error: 'File size must be less than 50MB' }, { status: 400 })
+      return NextResponse.json({ 
+        error: 'Only PDF files are allowed',
+        details: { receivedType: file.type }
+      }, { status: 400 })
     }
 
-    // Generate a unique document ID
-    const documentId = `doc-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
-    console.log('🆔 Generated document ID:', documentId)
+    console.log('📄 Processing PDF...')
+    // Read and validate PDF
+    const bytes = await file.arrayBuffer()
+    console.log('📊 File size:', bytes.byteLength, 'bytes')
     
-    // Process watermark image if provided
-    let watermarkImagePath = null
-    if (watermarkImage && watermarkImage.size > 0) {
-      // Validate watermark image
-      if (!watermarkImage.type.startsWith('image/')) {
-        return NextResponse.json({ error: 'Watermark must be an image file' }, { status: 400 })
-      }
-      
-      if (watermarkImage.size > 5 * 1024 * 1024) { // 5MB limit for watermark
-        return NextResponse.json({ error: 'Watermark image must be less than 5MB' }, { status: 400 })
-      }
-      
-      watermarkImagePath = `watermarks/${documentId}/${watermarkImage.name}`
-      console.log('🖼️ Watermark image path:', watermarkImagePath)
-    }
-
-    // Create DRM options
-    const drmOptions = {
-      watermark,
-      watermarkType: watermark ? watermarkType : null,
-      watermarkText: watermark && watermarkText ? watermarkText : null,
-      watermarkImagePath: watermark && watermarkImagePath ? watermarkImagePath : null,
-      preventDownload,
-      trackViews,
-      expiry: expiry ? parseInt(expiry) : null,
-      maxViews: maxViews ? parseInt(maxViews) : null
-    }
+    let pdfDoc
+    let pageCount = 1 // Default page count
     
-    console.log('⚙️ DRM options:', drmOptions)
-
-    // Save the actual PDF file using the storage provider
-    const storage = getStorageProvider()
-    const fileName = `${documentId}.pdf`
-    const fileBuffer = Buffer.from(await file.arrayBuffer())
-    
-    console.log('💾 Saving file with storage provider...')
-    const storageKey = await storage.saveFile(fileName, fileBuffer)
-    console.log('✅ File saved with storage key:', storageKey)
-    
-    // Get actual page count from PDF
-    let pageCount = 1
     try {
-      const { pdfProcessor } = await import('@/lib/pdf/processor')
-      pageCount = await pdfProcessor.getPageCount(fileBuffer)
+      // Try to load PDF normally first
+      pdfDoc = await PDFDocument.load(bytes)
+      pageCount = pdfDoc.getPageCount()
+      console.log('📑 PDF pages:', pageCount)
     } catch (error) {
-      console.log('Could not get page count, using default:', error)
-      pageCount = Math.floor(Math.random() * 20) + 5 // Fallback to random
+      console.log('⚠️ PDF might be encrypted, trying with ignoreEncryption...')
+      try {
+        // Try loading with encryption ignored
+        pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+        pageCount = pdfDoc.getPageCount()
+        console.log('📑 Encrypted PDF pages:', pageCount)
+      } catch (encryptionError) {
+        console.log('⚠️ Could not process PDF, using default page count')
+        // If both fail, we'll still proceed with default page count
+        // The PDF file will be stored but page count might be inaccurate
+        pageCount = 1
+      }
     }
-    
-    console.log('💾 Creating document in database...')
-    
-    // Create document in database with authenticated user as owner
+
+    // Create document record
+    console.log('💾 Creating document record...')
     const document = await prisma.document.create({
       data: {
-        ownerId: currentUser.id,
-        title: title.trim(),
-        description: description?.trim() || null,
+        title,
+        description,
         pageCount,
-        storageKey,
-        tilePrefix: `tiles/${documentId}/`,
-        drmOptions: JSON.stringify(drmOptions),
-        hasPassphrase: false
+        ownerId: user.id,
+        storageKey: '', // Will be updated after file save
+        originalFilename: file.name,
+        fileSize: BigInt(file.size),
+        mimeType: file.type
       }
     })
+    console.log('✅ Document created with ID:', document.id)
 
-    console.log('✅ Document created successfully:', document.id)
+    // Save file to uploads directory
+    console.log('💾 Saving file to disk...')
+    const uploadsDir = join(process.cwd(), 'uploads')
+    await mkdir(uploadsDir, { recursive: true })
+    
+    const fileName = `${document.id}.pdf`
+    const filePath = join(uploadsDir, fileName)
+    
+    await writeFile(filePath, Buffer.from(bytes))
+    console.log('✅ File saved to:', filePath)
 
-    // Prepare response
-    const response = {
+    // Update document with storage key
+    await prisma.document.update({
+      where: { id: document.id },
+      data: { storageKey: fileName }
+    })
+    console.log('✅ Document updated with storage key')
+
+    console.log('🎉 Upload completed successfully!')
+    return NextResponse.json({
       success: true,
+      message: 'Document uploaded successfully',
       document: {
         id: document.id,
         title: document.title,
         description: document.description,
         pageCount: document.pageCount,
-        createdAt: document.createdAt,
-        watermarkInfo: watermark ? {
-          type: watermarkType,
-          hasText: !!watermarkText,
-          hasImage: !!watermarkImagePath
-        } : null
-      },
-      message: 'Document uploaded and processed successfully!'
-    }
-    
-    console.log('📤 Sending success response')
-    return NextResponse.json(response, { status: 200 })
+        fileSize: file.size,
+        createdAt: document.createdAt
+      }
+    })
 
   } catch (error) {
-    console.error('❌ Document upload error:', error)
-    
-    // More detailed error logging
-    if (error instanceof Error) {
-      console.error('Error name:', error.name)
-      console.error('Error message:', error.message)
-      console.error('Error stack:', error.stack)
-    }
-    
+    console.error('❌ Upload error:', error)
     return NextResponse.json({ 
       error: 'Failed to upload document',
-      details: error instanceof Error ? error.message : 'Unknown error occurred',
-      timestamp: new Date().toISOString()
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })
   }
 }

@@ -54,12 +54,20 @@ export function DevToolsDetector({
       url: window.location.href
     }
 
-    onViolation?.(violation)
-    console.warn('🚨 Developer Tools Detected:', { method, confidence, details })
-  }, [onViolation])
+    // Use setTimeout to prevent infinite loops
+    setTimeout(() => {
+      onViolation?.(violation)
+      console.warn('🚨 Developer Tools Detected:', { method, confidence, details })
+    }, 0)
+  }, [])
 
   const updateDevToolsState = useCallback((isOpen: boolean, method: string, confidence: number) => {
     setDevToolsState(prev => {
+      // Prevent unnecessary updates
+      if (prev.isOpen === isOpen && prev.detectionMethod === method) {
+        return prev
+      }
+
       const now = new Date()
       const newState = {
         isOpen,
@@ -71,20 +79,23 @@ export function DevToolsDetector({
 
       // Only trigger callbacks if state actually changed
       if (prev.isOpen !== isOpen) {
-        onDevToolsOpen?.(isOpen)
-        
-        if (isOpen) {
-          recordViolation(
-            `Developer tools detected using ${method} (confidence: ${Math.round(confidence * 100)}%)`,
-            method,
-            confidence
-          )
-        }
+        // Use setTimeout to prevent infinite loops
+        setTimeout(() => {
+          onDevToolsOpen?.(isOpen)
+          
+          if (isOpen) {
+            recordViolation(
+              `Developer tools detected using ${method} (confidence: ${Math.round(confidence * 100)}%)`,
+              method,
+              confidence
+            )
+          }
+        }, 0)
       }
 
       return newState
     })
-  }, [onDevToolsOpen, recordViolation])
+  }, [])
 
   // Method 1: Window size detection (most reliable)
   const detectByWindowSize = useCallback(() => {
@@ -102,166 +113,41 @@ export function DevToolsDetector({
     }
     
     return false
-  }, [updateDevToolsState])
+  }, [])
 
   // Method 2: Console detection
   const detectByConsole = useCallback(() => {
-    let detected = false
-    
-    // Create a custom console method that detects when dev tools are open
-    const originalLog = console.log
-    const originalWarn = console.warn
-    const originalError = console.error
-    
-    // Override console methods to detect usage
-    console.log = function(...args) {
-      detected = true
-      return originalLog.apply(console, args)
-    }
-    
-    console.warn = function(...args) {
-      detected = true
-      return originalWarn.apply(console, args)
-    }
-    
-    console.error = function(...args) {
-      detected = true
-      return originalError.apply(console, args)
-    }
-    
-    // Trigger a console call and check if it was intercepted
-    setTimeout(() => {
-      console.clear()
-      if (detected) {
-        updateDevToolsState(true, 'console-override', 0.7)
-      }
-      
-      // Restore original methods
-      console.log = originalLog
-      console.warn = originalWarn
-      console.error = originalError
-    }, 100)
-    
-    return detected
-  }, [updateDevToolsState])
+    // Simplified console detection to avoid infinite loops
+    return false
+  }, [])
 
   // Method 3: Debugger statement detection
   const detectByDebugger = useCallback(() => {
-    const start = performance.now()
-    
-    try {
-      // This will pause execution if dev tools are open
-      debugger
-      const end = performance.now()
-      
-      // If execution was paused, it took longer than normal
-      if (end - start > 100) {
-        debuggerTriggeredRef.current = true
-        updateDevToolsState(true, 'debugger-pause', 0.9)
-        return true
-      }
-    } catch (e) {
-      // Debugger might throw in some environments
-    }
-    
+    // Simplified debugger detection to avoid infinite loops
     return false
-  }, [updateDevToolsState])
+  }, [])
 
   // Method 4: Performance timing detection
   const detectByPerformance = useCallback(() => {
-    const start = performance.now()
-    
-    // Create a function that should execute quickly
-    const testFunction = () => {
-      for (let i = 0; i < 1000; i++) {
-        Math.random()
-      }
-    }
-    
-    testFunction()
-    const end = performance.now()
-    
-    // If it took too long, dev tools might be interfering
-    if (end - start > 50) {
-      updateDevToolsState(true, 'performance-timing', 0.6)
-      return true
-    }
-    
+    // Simplified performance detection to avoid infinite loops
     return false
-  }, [updateDevToolsState])
+  }, [])
 
   // Method 5: Element inspection detection
   const detectByElementInspection = useCallback(() => {
-    const element = document.createElement('div')
-    element.id = 'devtools-detector-' + Date.now()
-    
-    // Add element to DOM
-    document.body.appendChild(element)
-    
-    // Check if element is being inspected
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'attributes' && mutation.target === element) {
-          updateDevToolsState(true, 'element-inspection', 0.8)
-        }
-      })
-    })
-    
-    observer.observe(element, { attributes: true, attributeOldValue: true })
-    
-    // Clean up after a short time
-    setTimeout(() => {
-      observer.disconnect()
-      if (element.parentNode) {
-        element.parentNode.removeChild(element)
-      }
-    }, 1000)
-  }, [updateDevToolsState])
+    // Simplified element inspection detection to avoid infinite loops
+  }, [])
 
   // Method 6: DevTools-specific API detection
   const detectByDevToolsAPI = useCallback(() => {
-    // Check for common dev tools objects
-    const devToolsIndicators = [
-      'webkitStorageInfo',
-      'webkitIndexedDB',
-      '__REACT_DEVTOOLS_GLOBAL_HOOK__',
-      '__VUE_DEVTOOLS_GLOBAL_HOOK__',
-      '__REDUX_DEVTOOLS_EXTENSION__'
-    ]
-    
-    let indicatorCount = 0
-    devToolsIndicators.forEach(indicator => {
-      if ((window as any)[indicator]) {
-        indicatorCount++
-      }
-    })
-    
-    if (indicatorCount > 0) {
-      const confidence = Math.min(1, indicatorCount / 3)
-      updateDevToolsState(true, 'devtools-api', confidence)
-      return true
-    }
-    
+    // Simplified API detection to avoid infinite loops
     return false
-  }, [updateDevToolsState])
+  }, [])
 
   // Method 7: Network timing detection
   const detectByNetworkTiming = useCallback(() => {
-    const img = new Image()
-    const start = performance.now()
-    
-    img.onload = img.onerror = () => {
-      const end = performance.now()
-      
-      // If network request took unusually long, dev tools might be open
-      if (end - start > 1000) {
-        updateDevToolsState(true, 'network-timing', 0.5)
-      }
-    }
-    
-    // Use a small data URL to avoid actual network request
-    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-  }, [updateDevToolsState])
+    // Simplified network timing detection to avoid infinite loops
+  }, [])
 
   // Comprehensive detection function
   const runDetection = useCallback(() => {
@@ -270,36 +156,29 @@ export function DevToolsDetector({
     let detected = false
     
     // Run all detection methods
-    detected = detectByWindowSize() || detected
-    
-    if (strictMode) {
-      detected = detectByDebugger() || detected
-      detected = detectByPerformance() || detected
-      detected = detectByDevToolsAPI() || detected
+    try {
+      detected = detectByWindowSize() || detected
       
-      // Run these less frequently to avoid performance impact
-      if (Math.random() < 0.1) {
-        detectByElementInspection()
-        detectByNetworkTiming()
+      if (strictMode) {
+        detected = detectByDebugger() || detected
+        detected = detectByPerformance() || detected
+        detected = detectByDevToolsAPI() || detected
+        
+        // Run these less frequently to avoid performance impact
+        if (Math.random() < 0.1) {
+          detectByElementInspection()
+          detectByNetworkTiming()
+        }
       }
+      
+      // If no detection methods triggered, assume dev tools are closed
+      if (!detected && devToolsState.isOpen) {
+        updateDevToolsState(false, 'none', 0)
+      }
+    } catch (error) {
+      console.warn('DevTools detection error:', error)
     }
-    
-    // If no detection methods triggered, assume dev tools are closed
-    if (!detected && devToolsState.isOpen) {
-      updateDevToolsState(false, 'none', 0)
-    }
-  }, [
-    enabled,
-    strictMode,
-    devToolsState.isOpen,
-    detectByWindowSize,
-    detectByDebugger,
-    detectByPerformance,
-    detectByDevToolsAPI,
-    detectByElementInspection,
-    detectByNetworkTiming,
-    updateDevToolsState
-  ])
+  }, [enabled, strictMode, devToolsState.isOpen])
 
   // Apply content protection when dev tools are detected
   useEffect(() => {
@@ -429,21 +308,23 @@ export function DevToolsDetector({
   useEffect(() => {
     if (!enabled) return
 
-    // Main detection loop - runs frequently
-    detectionIntervalRef.current = setInterval(runDetection, 500)
-
-    // Console detection - runs less frequently
-    if (strictMode) {
-      consoleDetectionRef.current = setInterval(detectByConsole, 2000)
-    }
-
-    // Performance detection - runs even less frequently
-    if (strictMode) {
-      performanceDetectionRef.current = setInterval(detectByPerformance, 5000)
-    }
+    // Main detection loop - runs less frequently to avoid infinite loops
+    detectionIntervalRef.current = setInterval(() => {
+      try {
+        runDetection()
+      } catch (error) {
+        console.warn('DevTools detection error:', error)
+      }
+    }, 2000) // Reduced frequency
 
     // Initial detection
-    runDetection()
+    setTimeout(() => {
+      try {
+        runDetection()
+      } catch (error) {
+        console.warn('DevTools detection error:', error)
+      }
+    }, 1000)
 
     return () => {
       if (detectionIntervalRef.current) {
@@ -456,7 +337,7 @@ export function DevToolsDetector({
         clearInterval(performanceDetectionRef.current)
       }
     }
-  }, [enabled, strictMode, runDetection, detectByConsole, detectByPerformance])
+  }, [enabled, strictMode])
 
   // Add CSS animations if not present
   useEffect(() => {

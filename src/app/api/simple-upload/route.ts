@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     // Extract and validate form data
     const title = formData.get('title') as string
     const description = formData.get('description') as string || null
-    const file = formData.get('document') as File
+    const file = formData.get('file') as File
     
     console.log('📝 Extracted data:', {
       title,

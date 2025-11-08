@@ -1,125 +1,103 @@
-// In-memory storage for demo documents and their share links
-// This will persist uploaded documents and their shares during the session
-
-interface DemoDocument {
+// Demo Document Store for development and testing
+export interface DemoDocument {
   id: string
   title: string
   description?: string
   pageCount: number
   createdAt: string
-  fileName: string
-  fileSize: number
-  storageKey: string
-  drmOptions: any
-}
-
-interface DemoShareLink {
-  id: string
-  code: string
-  documentId: string
-  createdAt: string
-  expiresAt: string
-  maxOpens?: number
-  openCount: number
-  requirePass: boolean
-  restrictedEmail?: string // Email address that has exclusive access
+  owner: string
+  canEdit: boolean
+  accessLevel: string
+  shareKey?: string
 }
 
 class DemoDocumentStore {
   private documents: Map<string, DemoDocument> = new Map()
-  private shareLinks: Map<string, DemoShareLink> = new Map()
-  private documentViews: Map<string, number> = new Map() // Track document views
 
-  // Document methods
-  addDocument(document: DemoDocument) {
-    this.documents.set(document.id, document)
-    this.documentViews.set(document.id, 0) // Initialize view count
-    console.log(`📄 Added demo document: ${document.id} - ${document.title}`)
+  constructor() {
+    // Initialize with sample documents
+    this.initializeSampleDocuments()
   }
 
-  getDocument(id: string): DemoDocument | undefined {
-    return this.documents.get(id)
+  private initializeSampleDocuments() {
+    const sampleDoc: DemoDocument = {
+      id: 'cmhkkk8sf00039uc4wutccz6m',
+      title: 'Sample Protected Document',
+      description: 'A sample PDF document with DRM protection',
+      pageCount: 5,
+      createdAt: new Date().toISOString(),
+      owner: 'demo@example.com',
+      canEdit: true,
+      accessLevel: 'owner',
+      shareKey: 'demo-share-key-123'
+    }
+
+    this.documents.set(sampleDoc.id, sampleDoc)
+  }
+
+  getDocument(id: string): DemoDocument | null {
+    return this.documents.get(id) || null
+  }
+
+  getDocumentByShareKey(shareKey: string): DemoDocument | null {
+    for (const doc of this.documents.values()) {
+      if (doc.shareKey === shareKey) {
+        return doc
+      }
+    }
+    return null
   }
 
   getAllDocuments(): DemoDocument[] {
     return Array.from(this.documents.values())
   }
 
-  // Share link methods
-  addShareLink(shareLink: DemoShareLink) {
-    this.shareLinks.set(shareLink.code, shareLink)
-    console.log(`🔗 Added demo share link: ${shareLink.code} for document: ${shareLink.documentId}`)
+  addDocument(doc: DemoDocument): void {
+    this.documents.set(doc.id, doc)
   }
 
-  getShareLink(code: string): DemoShareLink | undefined {
-    return this.shareLinks.get(code)
-  }
-
-  getShareLinksForDocument(documentId: string): DemoShareLink[] {
-    return Array.from(this.shareLinks.values()).filter(
-      link => link.documentId === documentId
-    )
-  }
-
-  incrementShareLinkViews(code: string): boolean {
-    const shareLink = this.shareLinks.get(code)
-    if (shareLink) {
-      shareLink.openCount++
-      console.log(`👁️ Incremented views for share link: ${code} (now ${shareLink.openCount})`)
+  updateDocument(id: string, updates: Partial<DemoDocument>): boolean {
+    const doc = this.documents.get(id)
+    if (doc) {
+      this.documents.set(id, { ...doc, ...updates })
       return true
     }
     return false
   }
 
-  // Get document by share code
-  getDocumentByShareCode(code: string): { document: DemoDocument; shareLink: DemoShareLink } | null {
-    const shareLink = this.getShareLink(code)
-    if (!shareLink) return null
-
-    const document = this.getDocument(shareLink.documentId)
-    if (!document) return null
-
-    return { document, shareLink }
+  deleteDocument(id: string): boolean {
+    return this.documents.delete(id)
   }
 
-  // View tracking methods
-  incrementDocumentViews(documentId: string): number {
-    const currentViews = this.documentViews.get(documentId) || 0
-    const newViews = currentViews + 1
-    this.documentViews.set(documentId, newViews)
-    console.log(`👁️ Incremented views for document: ${documentId} (now ${newViews})`)
-    return newViews
+  // Analytics methods
+  getDocumentViews(id: string): number {
+    // Return mock view count
+    return Math.floor(Math.random() * 100) + 1
   }
 
-  getDocumentViews(documentId: string): number {
-    return this.documentViews.get(documentId) || 0
-  }
-
-  getTotalViews(): number {
-    return Array.from(this.documentViews.values()).reduce((sum, views) => sum + views, 0)
-  }
-
-  // Debug methods
-  getStats() {
+  getDocumentAnalytics(id: string) {
     return {
-      documents: this.documents.size,
-      shareLinks: this.shareLinks.size,
-      documentIds: Array.from(this.documents.keys()),
-      shareCodes: Array.from(this.shareLinks.keys()),
-      totalViews: this.getTotalViews(),
-      documentViews: Object.fromEntries(this.documentViews)
+      views: this.getDocumentViews(id),
+      downloads: 0, // Downloads are blocked in DRM
+      shares: Math.floor(Math.random() * 10),
+      lastViewed: new Date().toISOString()
     }
   }
 
-  clear() {
-    this.documents.clear()
-    this.shareLinks.clear()
-    this.documentViews.clear()
-    console.log('🧹 Cleared demo document store')
+  // Share methods
+  generateShareKey(documentId: string): string {
+    const shareKey = `share-${documentId}-${Date.now()}`
+    const doc = this.documents.get(documentId)
+    if (doc) {
+      doc.shareKey = shareKey
+      this.documents.set(documentId, doc)
+    }
+    return shareKey
   }
 }
 
-// Global instance
-const demoStore = new DemoDocumentStore()
+// Export singleton instance
+export const demoStore = new DemoDocumentStore()
 
-export { demoStore, type DemoDocument, type DemoShareLink }
+// Export types
+export type { DemoDocument }

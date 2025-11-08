@@ -37,7 +37,7 @@ export default function FastUploadPage() {
       
       // Validate form
       const title = formData.get('title') as string
-      const file = formData.get('document') as File
+      const file = formData.get('file') as File
       
       if (!title?.trim()) {
         throw new Error('Please enter a document title')
@@ -229,7 +229,7 @@ export default function FastUploadPage() {
                   <div className="text-4xl mb-2">📄</div>
                   <input
                     type="file"
-                    name="document"
+                    name="file"
                     accept=".pdf"
                     required
                     disabled={isUploading}

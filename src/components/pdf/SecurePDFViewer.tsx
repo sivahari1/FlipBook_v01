@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Shield, Eye, FileText } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { DRMProtection } from '@/components/security/DRMProtection'
-import { useDRMProtection } from '@/hooks/useDRMProtection'
+
 
 interface SecurePDFViewerProps {
   documentId: string
@@ -67,17 +67,7 @@ export function SecurePDFViewer({
   const viewerRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
 
-  // Initialize DRM protection
-  const drm = useDRMProtection({
-    enabled: true,
-    onViolation: (violation) => {
-      onSecurityViolation?.(violation)
-      console.warn('🚨 DRM Violation:', violation)
-    },
-    autoActivate: true,
-    logViolations: true,
-    showWarnings: true
-  })
+  // DRM protection is handled by the parent DRMProtection component
 
   useEffect(() => {
     initializeSecureSession()
@@ -167,10 +157,15 @@ export function SecurePDFViewer({
       if (!response.ok) {
         if (response.status === 401) {
           // Session expired, reinitialize
+          console.log(`Session expired for page ${pageNumber}, reinitializing...`)
           await initializeSecureSession()
           return
         }
-        throw new Error(`Failed to load page ${pageNumber}`)
+        console.error(`Failed to load page ${pageNumber}: ${response.status} ${response.statusText}`)
+        if (pageNumber === currentPage) {
+          setError(`Failed to load page ${pageNumber}. Please try again.`)
+        }
+        return
       }
 
       const blob = await response.blob()
